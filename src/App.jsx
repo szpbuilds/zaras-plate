@@ -872,12 +872,12 @@ function RecipeCard({ recipe, index, onOpen, onAddToMenu, onQuickAddToday, inPla
   };
   const menuItem = { kind: "library", id: recipe.id, label: recipe.title };
   const longPress = useLongPress(
+    () => onAddToMenu(menuItem),
     () => {
       onQuickAddToday(menuItem);
       setJustAdded(true);
       setTimeout(() => setJustAdded(false), 1400);
-    },
-    () => onAddToMenu(menuItem)
+    }
   );
   return (
     <div
@@ -900,13 +900,14 @@ function RecipeCard({ recipe, index, onOpen, onAddToMenu, onQuickAddToday, inPla
         <button
           type="button"
           className="cb-card-addmenu"
+          title="Tap to add to today's dinner · long-press to pick days & meals"
           onPointerDown={(e) => { e.stopPropagation(); longPress.onPointerDown(e); }}
           onPointerUp={longPress.onPointerUp}
           onPointerLeave={longPress.onPointerLeave}
           onPointerCancel={longPress.onPointerCancel}
           onClick={(e) => { e.stopPropagation(); longPress.onClick(e); }}
         >
-          {justAdded ? "✓ Added to today" : inPlan ? "Log this meal" : "+ Add to menu"}
+          {justAdded ? "✓ Added to today" : inPlan ? "Log this meal" : "+ Add to today"}
         </button>
         <span className="cb-card-cta">Open recipe →</span>
       </div>
@@ -919,12 +920,12 @@ function CarouselCard({ r, imgFailed, onImgError, onAddToPrompt, onAddToMenu, on
   const showImage = r.imageUrl && !imgFailed;
   const menuItem = { kind: "external", data: r, label: r.title };
   const longPress = useLongPress(
+    () => onAddToMenu(menuItem),
     () => {
       onQuickAddToday(menuItem);
       setJustAdded(true);
       setTimeout(() => setJustAdded(false), 1400);
-    },
-    () => onAddToMenu(menuItem)
+    }
   );
   return (
     <div className="cb-rcard">
@@ -947,13 +948,14 @@ function CarouselCard({ r, imgFailed, onImgError, onAddToPrompt, onAddToMenu, on
         <button
           className="cb-rcard-add"
           type="button"
+          title="Tap to add to today's dinner · long-press to pick days & meals"
           onPointerDown={longPress.onPointerDown}
           onPointerUp={longPress.onPointerUp}
           onPointerLeave={longPress.onPointerLeave}
           onPointerCancel={longPress.onPointerCancel}
           onClick={longPress.onClick}
         >
-          {justAdded ? "✓ Added to today" : "+ Add to menu"}
+          {justAdded ? "✓ Added to today" : "+ Add to today"}
         </button>
         {r.url ? (
           <a className="cb-rcard-open" href={r.url} target="_blank" rel="noopener noreferrer">View ↗</a>
@@ -1290,7 +1292,10 @@ function AddToMenuModal({ item, weekDays, todayISO, isAlreadyOn, onConfirm, onCl
             const dayPicks = picks[iso] || [];
             return (
               <div key={iso} className={`cb-modal-day ${dayPicks.length ? "selected" : ""}`}>
-                <span className="cb-modal-day-name">{WEEKDAY_LABELS[d.getDay()]}{isToday ? " · Today" : ""}</span>
+                <span className="cb-modal-day-name">
+                  {WEEKDAY_LABELS[d.getDay()]}
+                  {isToday ? <span className="cb-today-dot" role="img" aria-label="Today" title="Today" /> : null}
+                </span>
                 <span className="cb-modal-day-date">{formatShortMonthDay(d)}</span>
                 <div className="cb-day-meals" role="group" aria-label={`Meals for ${WEEKDAY_LABELS[d.getDay()]}`}>
                   {MEALS.map((m) => {
@@ -1967,7 +1972,14 @@ export default function Cookbook() {
         .cb-day-meal.picked.cb-dm-lunch { background: #8FB15C; }
         .cb-day-meal.picked.cb-dm-dinner { background: #C99A3E; }
         .cb-day-meal.on-menu { color: #6B7280; background: rgba(107,114,128,0.12); cursor: default; }
-        .cb-modal-day-name { font-weight: 600; }
+        .cb-modal-day-name {
+          flex: 0 0 auto; width: 46px; font-weight: 600;
+          display: inline-flex; align-items: center;
+        }
+        .cb-today-dot {
+          width: 6px; height: 6px; border-radius: 50%; background: #C99A3E;
+          margin-left: 6px; flex: 0 0 auto;
+        }
         .cb-modal-day-date { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A9A48F; flex: 0 0 auto; }
         .cb-modal-confirm:disabled { opacity: 0.4; cursor: default; }
         .cb-modal-confirm:disabled:hover { background: #C99A3E; }
