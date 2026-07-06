@@ -1163,7 +1163,7 @@ function DaySlots({ iso, items, handlers }) {
 }
 
 function PlanView({
-  weekDays, selectedDay, menu, recipes, onOpenRecipe, onAddToMenu, onQuickAddToday,
+  weekDays, selectedDay, todayISO, menu, recipes, onOpenRecipe, onAddToMenu, onQuickAddToday,
   onClearDay, onRequestDelete, onCalculateMacros, externalMacroStatus, onAddToCookbook,
 }) {
   const handlers = {
@@ -1187,19 +1187,25 @@ function PlanView({
   }
 
   return (
-    <div>
+    <div className="cb-week">
       {weekDays.map((d) => {
         const iso = dateToISO(d);
         const items = menu[iso] || [];
+        const isToday = iso === todayISO;
         return (
-          <div key={iso} className="cb-plan-day-block">
-            <div className="cb-list-header-row">
-              <span className="cb-list-count">{formatFullDate(iso)}</span>
+          <div key={iso} className={`cb-day-card ${isToday ? "today" : ""}`}>
+            <div className="cb-day-card-head">
+              <span className="cb-day-card-date">
+                {formatFullDate(iso)}
+                {isToday ? <span className="cb-day-card-today">Today</span> : null}
+              </span>
               {items.length ? (
                 <button type="button" className="cb-clear-btn" onClick={() => onClearDay(iso)}>Clear day</button>
               ) : null}
             </div>
-            <DaySlots iso={iso} items={items} handlers={handlers} />
+            <div className="cb-day-card-body">
+              <DaySlots iso={iso} items={items} handlers={handlers} />
+            </div>
           </div>
         );
       })}
@@ -1904,7 +1910,26 @@ export default function Cookbook() {
         .cb-week-day-num { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; }
         .cb-week-day-dot { position: absolute; bottom: 4px; width: 4px; height: 4px; border-radius: 50%; background: #C99A3E; }
         .cb-week-day.selected .cb-week-day-dot { background: #20242B; }
-        .cb-plan-day-block { margin-bottom: 24px; }
+        .cb-week { display: flex; flex-direction: column; gap: 18px; }
+        .cb-day-card { background: #23282F; border: 1px solid #333A45; border-radius: 16px; }
+        .cb-day-card.today { border-color: #C99A3E; box-shadow: 0 0 0 1px rgba(201,154,62,0.25); }
+        .cb-day-card-head {
+          position: sticky; top: 0; z-index: 5;
+          display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+          background: #23282F; border-bottom: 1px solid #333A45; border-radius: 16px 16px 0 0;
+          padding: 13px 18px;
+        }
+        .cb-day-card.today .cb-day-card-head { border-bottom-color: rgba(201,154,62,0.35); }
+        .cb-day-card-date {
+          font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600;
+          letter-spacing: 0.08em; text-transform: uppercase; color: #F4EFE4;
+        }
+        .cb-day-card.today .cb-day-card-date { color: #C99A3E; }
+        .cb-day-card-today {
+          margin-left: 10px; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+          letter-spacing: 0.1em; background: #C99A3E; color: #20242B; padding: 2px 8px; border-radius: 999px;
+        }
+        .cb-day-card-body { padding: 0 18px 16px; }
         .cb-slots { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
         .cb-slot { display: flex; flex-direction: column; gap: 8px; }
         .cb-slot-label {
@@ -1916,14 +1941,14 @@ export default function Cookbook() {
         .cb-slot-lunch { background: #8FB15C; }
         .cb-slot-dinner { background: #C99A3E; }
         .cb-slot-empty {
-          display: flex; align-items: center; gap: 12px; padding: 16px 18px;
-          border: 1px dashed #3F4550; border-radius: 14px; background: rgba(42,47,56,0.35);
+          display: flex; align-items: center; gap: 10px; padding: 9px 13px;
+          border: 1px dashed #3A4049; border-radius: 10px; background: rgba(32,36,43,0.4);
         }
         .cb-slot-empty-mark {
-          flex: 0 0 auto; width: 26px; height: 26px; border-radius: 8px;
-          border: 1px dashed #4A505C; background: rgba(244,239,228,0.03);
+          flex: 0 0 auto; width: 15px; height: 15px; border-radius: 5px;
+          border: 1px dashed #454B55; background: rgba(244,239,228,0.03);
         }
-        .cb-slot-empty-text { font-family: 'Work Sans', sans-serif; font-size: 13px; color: #7D7A6D; }
+        .cb-slot-empty-text { font-family: 'Work Sans', sans-serif; font-size: 12px; color: #6E6B60; }
         .cb-plan-empty { padding: 12px 2px 28px; max-width: 480px; }
         .cb-plan-empty-title { font-family: 'Libre Caslon Display', serif; font-size: 17px; color: #F4EFE4; margin-bottom: 8px; }
         .cb-plan-empty-sub { font-family: 'Work Sans', sans-serif; font-size: 13px; color: #A9A48F; line-height: 1.55; }
@@ -2461,6 +2486,7 @@ export default function Cookbook() {
                 <PlanView
                   weekDays={weekDays}
                   selectedDay={selectedDay}
+                  todayISO={todayISO}
                   menu={menu}
                   recipes={allRecipes}
                   onOpenRecipe={setActiveId}
