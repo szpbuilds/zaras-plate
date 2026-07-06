@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "./lib/auth";
+import {
+  fetchRecipes, insertRecipe, fetchMenu, insertMenuEntries, deleteMenuEntries,
+  setEntriesMacros, convertEntriesToLibrary, menuRowToItem,
+} from "./lib/db";
 
 /* =========================================================================
    FONTS — one shared import covering the shell + every recipe theme.
@@ -1483,6 +1487,30 @@ export default function Cookbook() {
   const weekDays = useMemo(() => getCurrentWeekDays(), []);
   const todayISO = useMemo(() => dateToISO(new Date()), []);
 
+  // Attaches the React detail-view Component to a DB-loaded custom recipe.
+  const hydrateRecipe = (r) => {
+    const rec = { ...r };
+    rec.Component = () => <GeneratedRecipeComponent recipe={rec} />;
+    return rec;
+  };
+
+  // Load the signed-in user's recipes + weekly menu from Supabase on mount / user change.
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    (async () => {
+      try {
+        const [recipes, loadedMenu] = await Promise.all([fetchRecipes(user.id), fetchMenu(user.id)]);
+        if (!active) return;
+        setCustomRecipes(recipes.map(hydrateRecipe));
+        setMenu(loadedMenu);
+      } catch (e) {
+        console.error("Failed to load your data:", e);
+      }
+    })();
+    return () => { active = false; };
+  }, [user?.id]);
+
   // Two menu items match only within the same meal slot, so the same recipe can sit in,
   // say, both breakfast and dinner on one day without one delete removing both.
   const itemsMatch = (a, b) => {
@@ -1494,24 +1522,39 @@ export default function Cookbook() {
       : false;
   };
 
-  const addToMenuOnDay = (iso, item) => {
-    setMenu((prev) => {
-      const existing = prev[iso] || [];
-      if (existing.some((e) => itemsMatch(e, item))) return prev;
-      return { ...prev, [iso]: [...existing, item] };
-    });
+  // Persists new entries, then adds the returned rows (with real ids) to state.
+  // Dedupes against the current menu so the same recipe+meal+day isn't added twice.
+  const addEntries = async (entries) => {
+    if (!user) return;
+    const fresh = entries.filter(({ iso, item }) => !(menu[iso] || []).some((e) => itemsMatch(e, item)));
+    if (!fresh.length) return;
+    try {
+      const rows = await insertMenuEntries(user.id, fresh);
+      setMenu((prev) => {
+        const next = { ...prev };
+        rows.forEach((row) => {
+          next[row.day] = [...(next[row.day] || []), menuRowToItem(row)];
+        });
+        return next;
+      });
+    } catch (e) {
+      console.error("Failed to add to menu:", e);
+    }
   };
+
   const openAddToMenuModal = (item) => setPendingMenuItem(item);
   const closeAddToMenuModal = () => setPendingMenuItem(null);
   const handleAddToDays = (picks) => {
     if (pendingMenuItem) {
+      const entries = [];
       Object.entries(picks).forEach(([iso, meals]) =>
-        meals.forEach((meal) => addToMenuOnDay(iso, { ...pendingMenuItem, meal }))
+        meals.forEach((meal) => entries.push({ iso, item: { ...pendingMenuItem, meal } }))
       );
+      addEntries(entries);
     }
     closeAddToMenuModal();
   };
-  const quickAddToday = (item) => addToMenuOnDay(todayISO, { ...item, meal: DEFAULT_MEAL });
+  const quickAddToday = (item) => addEntries([{ iso: todayISO, item: { ...item, meal: DEFAULT_MEAL } }]);
 
   const dismissUndo = () => {
     setUndoState((prev) => {
@@ -1523,15 +1566,17 @@ export default function Cookbook() {
     dismissUndo();
     setMenu((prev) => {
       const existing = prev[iso] || [];
-      return { ...prev, [iso]: existing.filter((e) => !itemsMatch(e, item)) };
+      return { ...prev, [iso]: existing.filter((e) => e.entryId !== item.entryId) };
     });
+    if (item.entryId) deleteMenuEntries([item.entryId]).catch((e) => console.error("Failed to delete entry:", e));
     const timeoutId = setTimeout(() => setUndoState(null), 10000);
     setUndoState({ iso, item, timeoutId });
   };
   const undoDelete = () => {
     if (!undoState) return;
     clearTimeout(undoState.timeoutId);
-    addToMenuOnDay(undoState.iso, undoState.item);
+    const { entryId, ...item } = undoState.item; // drop the stale id; a fresh row is created
+    addEntries([{ iso: undoState.iso, item }]);
     setUndoState(null);
   };
   // The undo window closes early if the user switches tabs or opens a recipe.
@@ -1542,19 +1587,17 @@ export default function Cookbook() {
     setConfirmAction({ type: "clear-week", label: `${formatShortMonthDay(weekDays[0])} – ${formatShortMonthDay(weekDays[6])}` });
   const runConfirmedClear = () => {
     if (!confirmAction) return;
-    if (confirmAction.type === "clear-day") {
-      setMenu((prev) => {
-        const next = { ...prev };
-        delete next[confirmAction.iso];
-        return next;
-      });
-    } else if (confirmAction.type === "clear-week") {
-      setMenu((prev) => {
-        const next = { ...prev };
-        weekDays.forEach((d) => delete next[dateToISO(d)]);
-        return next;
-      });
-    }
+    const isos = confirmAction.type === "clear-day"
+      ? [confirmAction.iso]
+      : weekDays.map((d) => dateToISO(d));
+    const ids = [];
+    isos.forEach((iso) => (menu[iso] || []).forEach((e) => e.entryId && ids.push(e.entryId)));
+    setMenu((prev) => {
+      const next = { ...prev };
+      isos.forEach((iso) => delete next[iso]);
+      return next;
+    });
+    if (ids.length) deleteMenuEntries(ids).catch((e) => console.error("Failed to clear entries:", e));
     setConfirmAction(null);
   };
 
@@ -1669,15 +1712,21 @@ export default function Cookbook() {
         macros = await callClaude(buildMacroPrompt(data), false, "object");
       }
       if (typeof macros.kcal !== "number") throw new Error("Unexpected response shape");
+      const ids = [];
       setMenu((prev) => {
         const next = {};
         Object.entries(prev).forEach(([iso, items]) => {
-          next[iso] = items.map((it) =>
-            it.kind === "external" && (it.data.url || it.data.title) === key ? { ...it, macros } : it
-          );
+          next[iso] = items.map((it) => {
+            if (it.kind === "external" && (it.data.url || it.data.title) === key) {
+              if (it.entryId) ids.push(it.entryId);
+              return { ...it, macros };
+            }
+            return it;
+          });
         });
         return next;
       });
+      setEntriesMacros(ids, macros).catch((err) => console.error("Failed to save macros:", err));
       setExternalMacroStatus((s) => ({ ...s, [key]: { status: "done" } }));
     } catch (e) {
       setExternalMacroStatus((s) => ({ ...s, [key]: { status: "error", error: (e && e.message) || "Couldn't calculate macros." } }));
@@ -1712,14 +1761,12 @@ export default function Cookbook() {
     if (cookbookDraft) generateCookbookDraft(cookbookDraft.source);
   };
   const rejectCookbookDraft = () => setCookbookDraft(null);
-  const approveCookbookDraft = () => {
-    if (!cookbookDraft || cookbookDraft.status !== "ready") return;
+  const approveCookbookDraft = async () => {
+    if (!cookbookDraft || cookbookDraft.status !== "ready" || !user) return;
     const draft = cookbookDraft.data;
     const source = cookbookDraft.source;
-    const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const theme = GENERATED_THEMES[customRecipes.length % GENERATED_THEMES.length];
-    const recipeData = {
-      id,
+    const recipeInput = {
       title: draft.title,
       blurb: draft.blurb,
       kicker: draft.kicker || "From the Web",
@@ -1734,26 +1781,37 @@ export default function Cookbook() {
       sourceUrl: source.url,
       sourceName: source.source,
       theme,
-      dateAdded: todayISO,
     };
-    recipeData.Component = () => <GeneratedRecipeComponent recipe={recipeData} />;
 
-    setCustomRecipes((prev) => [...prev, recipeData]);
+    try {
+      const saved = await insertRecipe(user.id, recipeInput); // real UUID id assigned by the DB
+      setCustomRecipes((prev) => [...prev, hydrateRecipe(saved)]);
 
-    const extKey = source.url || source.title;
-    setMenu((prev) => {
-      const next = {};
-      Object.entries(prev).forEach(([iso, items]) => {
-        next[iso] = items.map((it) =>
-          it.kind === "external" && (it.data.url || it.data.title) === extKey
-            ? { kind: "library", id, label: recipeData.title, meal: it.meal }
-            : it
-        );
+      // Any planned copies of the external source become library entries pointing at the saved recipe.
+      const extKey = source.url || source.title;
+      const ids = [];
+      setMenu((prev) => {
+        const next = {};
+        Object.entries(prev).forEach(([iso, items]) => {
+          next[iso] = items.map((it) => {
+            if (it.kind === "external" && (it.data.url || it.data.title) === extKey) {
+              if (it.entryId) ids.push(it.entryId);
+              return { entryId: it.entryId, kind: "library", id: saved.id, label: saved.title, meal: it.meal };
+            }
+            return it;
+          });
+        });
+        return next;
       });
-      return next;
-    });
+      if (ids.length) await convertEntriesToLibrary(ids, saved.id, saved.title);
 
-    setCookbookDraft(null);
+      setCookbookDraft(null);
+    } catch (e) {
+      console.error("Failed to save recipe:", e);
+      setCookbookDraft((prev) =>
+        prev ? { ...prev, status: "error", error: "Couldn't save the recipe. Try again." } : prev
+      );
+    }
   };
 
   const SAVED_POOL = [
