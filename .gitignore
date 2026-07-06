@@ -9,6 +9,11 @@ dist-ssr/
 .vite/
 *.local
 
+# Environment / secrets (never commit real keys — see .env.example)
+.env
+.env.*
+!.env.example
+
 # Logs
 logs/
 *.log
