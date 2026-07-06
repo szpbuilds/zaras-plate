@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useAuth } from "./lib/auth";
 
 /* =========================================================================
    FONTS — one shared import covering the shell + every recipe theme.
    ========================================================================= */
-const FONT_IMPORT =
+export const FONT_IMPORT =
   "@import url('https://fonts.googleapis.com/css2?family=Libre+Caslon+Display&family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&family=Archivo+Black&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap');";
 
 /* =========================================================================
@@ -1461,6 +1462,7 @@ function formatFullDate(iso) {
 }
 
 export default function Cookbook() {
+  const { user, signOut } = useAuth();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [activeTab, setActiveTab] = useState("eat");
@@ -1864,6 +1866,19 @@ export default function Cookbook() {
         .cb-wrap { max-width: 2000px; margin: 0 auto; }
         .cb-layout { display: block; }
         .cb-left { margin-bottom: 28px; }
+        .cb-userbar {
+          display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px;
+        }
+        .cb-userbar-email {
+          font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A9A48F;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .cb-signout {
+          flex: 0 0 auto; background: none; border: 1px solid #3A3F4A; border-radius: 999px;
+          padding: 5px 12px; cursor: pointer; color: #A9A48F;
+          font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+        }
+        .cb-signout:hover { border-color: #C99A3E; color: #F4EFE4; }
         .cb-eyebrow {
           font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
           letter-spacing: 0.12em; text-transform: uppercase; color: #C99A3E; margin-bottom: 8px;
@@ -2361,6 +2376,12 @@ export default function Cookbook() {
         <div className="cb-wrap">
           <div className="cb-layout">
             <div className="cb-left">
+              {user ? (
+                <div className="cb-userbar">
+                  <span className="cb-userbar-email" title={user.email}>{user.email}</span>
+                  <button type="button" className="cb-signout" onClick={signOut}>Sign out</button>
+                </div>
+              ) : null}
               <div className="cb-eyebrow">The Recipe Box</div>
               <h1 className="cb-title">Zara's Plate</h1>
               <div className="cb-tabbar" role="tablist">
