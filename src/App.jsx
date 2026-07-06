@@ -1252,7 +1252,15 @@ function PlanMacroSummary({ weekDays, selectedDay, menu, recipes }) {
   );
 }
 
-function AddToMenuModal({ item, weekDays, todayISO, onSelectDay, onClose }) {
+function AddToMenuModal({ item, weekDays, todayISO, existingISOs, onConfirm, onClose }) {
+  const [selected, setSelected] = useState(() => new Set());
+  const toggleDay = (iso) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(iso) ? next.delete(iso) : next.add(iso);
+      return next;
+    });
+  const count = selected.size;
   return (
     <div className="cb-modal-backdrop" onClick={onClose}>
       <div className="cb-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Add to menu">
@@ -1260,18 +1268,41 @@ function AddToMenuModal({ item, weekDays, todayISO, onSelectDay, onClose }) {
           <span className="cb-modal-title">Add to menu</span>
           <button className="cb-modal-close" type="button" onClick={onClose} aria-label="Close">×</button>
         </div>
-        <div className="cb-modal-sub">{item.label}</div>
+        <div className="cb-modal-sub">{item.label} · pick one or more days</div>
         <div className="cb-modal-days">
           {weekDays.map((d) => {
             const iso = dateToISO(d);
             const isToday = iso === todayISO;
+            const already = existingISOs.has(iso);
+            const isSelected = selected.has(iso);
             return (
-              <button key={iso} type="button" className="cb-modal-day" onClick={() => onSelectDay(iso)}>
-                <span className="cb-modal-day-name">{WEEKDAY_LABELS[d.getDay()]}{isToday ? " · Today" : ""}</span>
-                <span className="cb-modal-day-date">{formatShortMonthDay(d)}</span>
+              <button
+                key={iso}
+                type="button"
+                className={`cb-modal-day ${isSelected ? "selected" : ""} ${already ? "on-menu" : ""}`}
+                onClick={() => !already && toggleDay(iso)}
+                disabled={already}
+                aria-pressed={already || isSelected}
+              >
+                <span className="cb-modal-day-main">
+                  <span className="cb-modal-day-check" aria-hidden="true">✓</span>
+                  <span className="cb-modal-day-name">{WEEKDAY_LABELS[d.getDay()]}{isToday ? " · Today" : ""}</span>
+                </span>
+                <span className="cb-modal-day-date">{already ? "On menu" : formatShortMonthDay(d)}</span>
               </button>
             );
           })}
+        </div>
+        <div className="cb-modal-confirm-actions">
+          <button type="button" className="cb-modal-cancel" onClick={onClose}>Cancel</button>
+          <button
+            type="button"
+            className="cb-modal-confirm"
+            onClick={() => onConfirm(Array.from(selected))}
+            disabled={count === 0}
+          >
+            {count === 0 ? "Add to menu" : `Add to ${count} day${count !== 1 ? "s" : ""}`}
+          </button>
         </div>
       </div>
     </div>
@@ -1421,8 +1452,8 @@ export default function Cookbook() {
   };
   const openAddToMenuModal = (item) => setPendingMenuItem(item);
   const closeAddToMenuModal = () => setPendingMenuItem(null);
-  const handlePickDayForMenu = (iso) => {
-    if (pendingMenuItem) addToMenuOnDay(iso, pendingMenuItem);
+  const handleAddToDays = (isoList) => {
+    if (pendingMenuItem) isoList.forEach((iso) => addToMenuOnDay(iso, pendingMenuItem));
     closeAddToMenuModal();
   };
   const quickAddToday = (item) => addToMenuOnDay(todayISO, item);
@@ -1860,8 +1891,22 @@ export default function Cookbook() {
           color: #F4EFE4; font-family: 'Work Sans', sans-serif; font-size: 14px;
         }
         .cb-modal-day:hover { background: #343A45; border-color: #C99A3E; }
+        .cb-modal-day-main { display: flex; align-items: center; gap: 11px; }
+        .cb-modal-day-check {
+          flex: 0 0 auto; width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid #4A505C;
+          display: inline-flex; align-items: center; justify-content: center;
+          font-size: 12px; line-height: 1; color: transparent; transition: background 0.12s, border-color 0.12s;
+        }
+        .cb-modal-day.selected { border-color: #C99A3E; background: #2A2E36; }
+        .cb-modal-day.selected .cb-modal-day-check { background: #C99A3E; border-color: #C99A3E; color: #20242B; }
+        .cb-modal-day.on-menu { opacity: 0.5; cursor: default; }
+        .cb-modal-day.on-menu:hover { background: #20242B; border-color: #3A3F4A; }
+        .cb-modal-day.on-menu .cb-modal-day-check { background: #6B7280; border-color: #6B7280; color: #20242B; }
         .cb-modal-day-name { font-weight: 600; }
         .cb-modal-day-date { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A9A48F; }
+        .cb-modal-confirm:disabled { opacity: 0.4; cursor: default; }
+        .cb-modal-confirm:disabled:hover { background: #C99A3E; }
+        .cb-modal-days + .cb-modal-confirm-actions { margin-top: 16px; }
 
         .cb-clear-btn {
           background: none; border: none; color: #D9736A; font-family: 'JetBrains Mono', monospace;
@@ -2403,7 +2448,10 @@ export default function Cookbook() {
           item={pendingMenuItem}
           weekDays={weekDays}
           todayISO={todayISO}
-          onSelectDay={handlePickDayForMenu}
+          existingISOs={new Set(
+            weekDays.map(dateToISO).filter((iso) => (menu[iso] || []).some((e) => itemsMatch(e, pendingMenuItem)))
+          )}
+          onConfirm={handleAddToDays}
           onClose={closeAddToMenuModal}
         />
       ) : null}
