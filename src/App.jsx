@@ -1422,6 +1422,7 @@ const COMPOSER_TABS = [
 ];
 
 const PROMPT_STARTERS = ["What's the macro profile?", "Summarize the dish", "Let's make this"];
+const PLAN_PROMPT_STARTERS = ["Plan this week", "Complete my week"];
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -1829,8 +1830,8 @@ export default function Cookbook() {
 
   const insertPromptStarter = (text) => {
     setPrompts((p) => {
-      const existing = p.eat.trim();
-      return { ...p, eat: existing ? `${existing}\n${text}` : text };
+      const existing = p[activeTab].trim();
+      return { ...p, [activeTab]: existing ? `${existing}\n${text}` : text };
     });
   };
 
@@ -2444,6 +2445,20 @@ export default function Cookbook() {
                             type="button"
                             className="cb-prompt-starter"
                             disabled={!showPromptStarters}
+                            onClick={() => insertPromptStarter(s)}
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {activeTab === "plan" && (
+                      <div className="cb-prompt-starters">
+                        {PLAN_PROMPT_STARTERS.map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            className="cb-prompt-starter"
                             onClick={() => insertPromptStarter(s)}
                           >
                             {s}
