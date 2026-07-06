@@ -1431,6 +1431,7 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MEALS = [
   { key: "breakfast", label: "Breakfast" },
   { key: "lunch", label: "Lunch" },
+  { key: "snack", label: "Snack" },
   { key: "dinner", label: "Dinner" },
 ];
 const DEFAULT_MEAL = "dinner";
@@ -1940,6 +1941,7 @@ export default function Cookbook() {
         }
         .cb-slot-breakfast { background: #6E9BC4; }
         .cb-slot-lunch { background: #8FB15C; }
+        .cb-slot-snack { background: #A784C4; }
         .cb-slot-dinner { background: #C99A3E; }
         .cb-slot-empty {
           display: flex; align-items: center; gap: 10px; padding: 9px 13px;
@@ -1996,6 +1998,7 @@ export default function Cookbook() {
         .cb-day-meal.picked { color: #20242B; }
         .cb-day-meal.picked.cb-dm-breakfast { background: #6E9BC4; }
         .cb-day-meal.picked.cb-dm-lunch { background: #8FB15C; }
+        .cb-day-meal.picked.cb-dm-snack { background: #A784C4; }
         .cb-day-meal.picked.cb-dm-dinner { background: #C99A3E; }
         .cb-day-meal.on-menu { color: #6B7280; background: rgba(107,114,128,0.12); cursor: default; }
         .cb-modal-day-name {
