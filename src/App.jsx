@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { supabase } from "./lib/supabase";
 import { useAuth } from "./lib/auth";
 import {
   fetchRecipes, insertRecipe, fetchMenu, insertMenuEntries, deleteMenuEntries,
@@ -1655,30 +1656,23 @@ export default function Cookbook() {
   const MEMORY_PROMPT =
     "Live web search isn't available right now. From your own knowledge, name 5 dinner recipes commonly found on reputable cooking websites (for example NYT Cooking, Serious Eats, Bon Appétit, Food52, Epicurious, America's Test Kitchen / Cook's Illustrated, AllRecipes, Smitten Kitchen, Budget Bytes, King Arthur Baking, The Kitchn) that are well-suited for someone trying to build lean muscle — genuinely high in protein per serving (roughly 30g or more), built around a whole-food protein source (chicken, beef, pork, fish, shrimp, tofu, or legumes), and NOT a dessert, side dish, snack, or beverage. Choose a varied mix of proteins and cuisines. Only include a url if you're genuinely confident it's correct — otherwise leave it as an empty string rather than guessing, since a wrong link is worse than no link. Respond with ONLY a JSON array (no markdown, no code fences, no commentary before or after) of exactly 5 objects shaped exactly like this: {\"title\": \"recipe name\", \"source\": \"site name\", \"url\": \"direct link if you're confident, otherwise empty string\", \"teaser\": \"one sentence under 20 words describing the dish, in your own words\", \"imageUrl\": \"\"}";
 
-  // NOTE: this fetch relies on claude.ai's artifact sandbox, which proxies requests to
-  // api.anthropic.com without needing an API key. Outside claude.ai (like here), this call
-  // will fail — that's expected until it's pointed at your own backend/serverless proxy that
-  // holds a real Anthropic API key and forwards the request (never call the real API directly
-  // from browser JS with an embedded key). Everything that calls this already fails gracefully:
-  // "Today's Picks" falls back to SAVED_POOL, and "Calculate macros"/"Add to cookbook" show
-  // their existing error UI with a retry button — nothing crashes, it just won't generate
-  // live results until a proxy is wired up.
+  // Calls the "claude" Supabase Edge Function, which holds the Anthropic API key
+  // server-side and forwards to api.anthropic.com. Everything that calls this still
+  // fails gracefully: "Today's Picks" falls back to SAVED_POOL, and "Calculate
+  // macros"/"Add to cookbook" show their retry UI. The `model` is chosen server-side
+  // (defaults to Sonnet 5); a future model picker can pass it through the body.
   async function callClaude(prompt, useSearch, shape = "array", maxTokens) {
-    const body = {
-      model: "claude-sonnet-4-6",
-      max_tokens: maxTokens || (shape === "object" ? 400 : 1500),
-      messages: [{ role: "user", content: prompt }],
-    };
-    if (useSearch) body.tools = [{ type: "web_search_20250305", name: "web_search" }];
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+    const { data, error } = await supabase.functions.invoke("claude", {
+      body: {
+        prompt,
+        useSearch: !!useSearch,
+        shape,
+        maxTokens: maxTokens || (shape === "object" ? 400 : 1500),
+      },
     });
-    const data = await res.json();
-    if (!res.ok || data.type === "error") {
-      const msg = (data && data.error && data.error.message) || `Request failed (${res.status})`;
-      throw new Error(msg);
+    if (error) throw new Error(error.message || "Claude request failed");
+    if (!data || data.type === "error") {
+      throw new Error((data && data.error && data.error.message) || "Claude request failed");
     }
     const textBlocks = (data.content || []).filter((b) => b.type === "text");
     const last = textBlocks.length ? textBlocks[textBlocks.length - 1].text : "";
@@ -1842,7 +1836,7 @@ export default function Cookbook() {
 
   async function fetchDailyRecipes() {
     try {
-      const recipes = await callClaude(SEARCH_PROMPT, true);
+      const recipes = await callClaude(SEARCH_PROMPT, true, "array", 3000);
       return recipes.map((r) => ({ ...r, badge: null }));
     } catch (searchErr) {
       console.warn("Web search call failed, falling back to knowledge-only:", searchErr);
