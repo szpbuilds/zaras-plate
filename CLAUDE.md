@@ -29,7 +29,7 @@ Read the file top-to-bottom; it is organized in clearly commented banner section
 4. **Hand-built recipes** — `PitaRecipe` and `SandwichRecipe`. Each pairs a `*_THEME` object (colors + fonts, applied as CSS variables via `RecipePage`) with a data-driven component. These do live macro math from per-100g constants and user toggles (cut, style, weight, panko, etc.).
 5. **Generated recipes** — `GeneratedRecipeComponent` renders recipes created at runtime via "Add to cookbook", using the same primitives. Helpers `detectChickenCut` / `swapChickenCutText` / `parseIngredientGrams` / `totalChickenGrams` let a generated recipe swap chicken breast↔thigh and recompute macros.
 6. **`RECIPES`** — the static registry array. Each entry has `{ id, title, kicker, tags, blurb, time, theme, Component, protein, diet, dateAdded, macros }`. **Add new hand-built recipes here.** At runtime, `allRecipes = [...RECIPES, ...customRecipes]`.
-7. **Index/shell components** — `RecipeCard`, `CarouselCard`, `WeekStrip`, `PlanView`, the modals (`AddToMenuModal`, `ConfirmModal`, `AddToCookbookModal`), `SwipeableMenuCard`, etc.
+7. **Index/shell components** — `RecipeCard`, `CarouselCard`, `WeekStrip`, `PlanView` / `DaySlots` (renders a day's three meal slots), the modals (`AddToMenuModal`, `ConfirmModal`, `AddToCookbookModal`), `SwipeableMenuCard`, etc.
 8. **`Cookbook`** — the root component. Holds essentially all app state (`activeTab`, `menu`, `customRecipes`, `dailyRecipes`, drafts, undo, filters…), all the handlers, the AI prompt builders, and the full JSX render.
 9. **Inline `<style>{`...`}</style>`** — one ~430-line CSS block at the end of the render (starts ~line 1774). **All styling lives here**, driven by CSS variables the theme objects set. `rp-*` classes = recipe pages; `cb-*` classes = the cookbook shell/index. There is no separate stylesheet.
 
@@ -37,7 +37,11 @@ Read the file top-to-bottom; it is organized in clearly commented banner section
 The shell is a tabbed composer: **Eat** (browse recipes + "Today's Picks" carousel), **Plan** (weekly `WeekStrip` + day menus), **Log**. State lives in `Cookbook`; `activeTab` switches which panel renders.
 
 ### The weekly menu model
-`menu` is `{ "YYYY-MM-DD": [item, ...] }`. An item is either `{ kind: "library", id, label }` (points into `allRecipes` by id) or `{ kind: "external", data, macros? }` (a "Today's Picks" web result not yet in the cookbook). `itemsMatch` dedupes them. When an external item is turned into a real recipe via "Add to cookbook", `approveCookbookDraft` rewrites its menu entries from `external` → `library`.
+`menu` is `{ "YYYY-MM-DD": [item, ...] }` (a flat array per day, in-memory only — not persisted). An item is either `{ kind: "library", id, label, meal }` (points into `allRecipes` by id) or `{ kind: "external", data, macros?, meal }` (a "Today's Picks" web result not yet in the cookbook). Every item carries a `meal` slot — one of `"breakfast" | "lunch" | "dinner"` (see the `MEALS` constant) — defaulting to `DEFAULT_MEAL` (`"dinner"`) when absent. `itemsMatch` is **slot-aware** (compares `meal` too), so the same recipe can sit in multiple meals on one day and deleting one card only removes that slot's instance.
+
+In the Plan tab, `DaySlots` groups a day's items by meal and renders all three slots always — a colored label chip plus its card(s), or a placeholder skeleton when empty. The Add-to-menu modal (`AddToMenuModal`) uses a per-day segmented meal control with local state shaped `{ [iso]: mealKey[] }`, so one action can add a recipe to several days and several meals at once; long-press quick-add drops into dinner.
+
+When an external item is turned into a real recipe via "Add to cookbook", `approveCookbookDraft` rewrites its menu entries from `external` → `library` (preserving each entry's `meal`).
 
 ## AI integration — read before touching `callClaude`
 
