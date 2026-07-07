@@ -72,18 +72,41 @@ can be reused.
   (one tap from the Plan tab)? Likely both — quick-log from the plan **and** ad-hoc entries.
 - Views: a daily/weekly log list + a macro roll-up (reuse `PlanMacroSummary`-style totals).
 
-**Proposed approach:** Build the Log tab as a dated list of entries with a quick "log this
-meal" action from Plan-tab cards. Start against `localStorage`, then move to the DB once
-track 1 lands so history is durable.
+**Finalized UX (this pass):** The Log tab is **day-first**, reusing the Plan tab's meal-slot layout:
+- **Left column:** the weekly-goal hero (calorie ring + protein/fat/carbs bars + protein daily-floor),
+  the day strip, and the existing prompt box.
+- **Right column:** today's four slots (breakfast / lunch / snack / dinner). Each slot is either a
+  planned meal or blank.
+  - **Planned meal** → its usual recipe card with a **"Log it"** button. *Reuse the Plan card + its
+    existing "Log this meal" button — repoint it from add-to-menu to real logging (no parallel
+    component).* Once logged it counts toward macros and gets the serving stepper.
+  - **Blank slot** → a **"+ From your library"** CTA (picks a recipe and **logs it immediately**),
+    plus helper text pointing at the left prompt box for ad-hoc meals — **signpost only this pass**
+    (freeform AI deferred, so the library CTA is the one working way to fill a blank slot).
 
-**Open questions:**
-- Track only macros, or also portions/servings and a rating/notes field?
+**Decided (this pass):**
+- Weekly is the primary metric, daily is the drill-down — each logged meal rolls up into both.
+- **Protein daily floor** in addition to the weekly total.
+- **Serving multiplier** on each logged entry (0.5× / 1× / 1.5× …).
+- **Goals v1**: ship a **sensible default starting target now** so logging works; the full
+  **compute-from-stats + editable** setup comes in the immediate next pass. (Female-baseline lean-gain
+  estimate; HRT context → measure-and-tune, no validated trans-specific equation.)
+- **Reuse over duplication**: one meal card + one "Log it" action shared with the Plan tab; the
+  blank-slot placeholder reused from the Plan day-slots.
+- Scope: strictly food logging — no weight/measurement tracking yet.
 
-**Tasks:**
-- [ ] Define the log-entry data model (meal slot + `logged_at` timestamp)
-- [ ] Build the Log tab view (entries by logged date/time + macro roll-up)
-- [ ] Add "log this meal" from Plan/recipe cards
-- [ ] Persist to `localStorage`, then migrate to DB (after track 1)
+**Tasks (in order — logging first, goals setup right after):**
+- [ ] `logs` table (meal slot, `logged_at`, source, macros, servings, notes), per-user + RLS
+- [ ] Log tab right column = day-slot view; wire the card "Log it" button to write a log
+- [ ] Blank-slot "+ From your library" CTA (logs immediately) + ad-hoc prompt signpost
+- [ ] Serving stepper on logged meals; weekly-goal hero (ring + protein floor) using a hardcoded default target
+- [ ] Goals setup (compute-from-stats + editable), stored per-user — immediate next pass
+
+**Enhancements (later):**
+- **Freeform AI logging** — type what you ate ("2 eggs, toast, black coffee") and reuse the Claude
+  proxy to estimate macros. Deferred from the first logging pass.
+- **Weight / measurement tracking** — to auto-tune the goal target over time (deferred; strictly
+  food logging for now).
 
 **Dependencies:** Works standalone on `localStorage`; **best after track 1** for durable history.
 
@@ -125,9 +148,18 @@ the full backend-backed app once track 1 lands.
 
 ## Suggested sequencing (order is flexible)
 
-1. **Backend + auth + Anthropic proxy** (start of track 1) — the linchpin; unblocks the other two.
-2. **Database migration** (rest of track 1) — move `menu`/recipes off in-memory state, scoped per user.
-3. **Logging** (track 2) — build on the persistence layer.
-4. **Backend-backed shared deploy** (track 3) — hand it to friends for real.
+1. ✅ **Backend + auth + Anthropic proxy** (track 1) — done.
+2. ✅ **Database migration** (track 1) — done; `menu` + recipes are per-user in Supabase.
+3. **Logging** (track 2) — *in progress*: logging first with a default goal target, then the goals setup.
+4. **Backend-backed shared deploy** (track 3) — hand it to friends (needs custom SMTP for signups).
 
 No interim static preview — the shared URL waits for the backend-backed build (decided).
+
+---
+
+## Backlog / other enhancements
+
+- **Drag & drop in the Plan tab** — reorder recipes between meal slots and across days by dragging,
+  instead of the current remove-and-re-add. Plan-tab UX; independent of logging.
+- **Freeform AI logging** and **weight / measurement tracking** — deferred from the logging pass
+  (see track 2 → Enhancements).

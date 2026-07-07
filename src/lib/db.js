@@ -127,3 +127,62 @@ export async function convertEntriesToLibrary(entryIds, recipeId, label) {
     .in("id", entryIds);
   if (error) throw error;
 }
+
+/* --------------------------------- logs --------------------------------- */
+
+const ZERO_MACROS = { kcal: 0, protein: 0, fat: 0, carb: 0 };
+
+// DB row -> app log entry. `macros` is per-serving; multiply by `servings` for totals.
+export function logRowToApp(row) {
+  return {
+    id: row.id,
+    day: row.day,
+    meal: row.meal,
+    source: row.source,
+    recipeRef: row.recipe_ref,
+    label: row.label,
+    macros: row.macros || ZERO_MACROS,
+    servings: Number(row.servings) || 1,
+    menuEntryId: row.menu_entry_id,
+    loggedAt: row.logged_at,
+  };
+}
+
+// Fetches logs within an inclusive [fromISO, toISO] day range (e.g. the current week).
+export async function fetchLogs(userId, fromISO, toISO) {
+  const { data, error } = await supabase
+    .from("logs")
+    .select("*")
+    .gte("day", fromISO)
+    .lte("day", toISO)
+    .order("logged_at", { ascending: true });
+  if (error) throw error;
+  return (data || []).map(logRowToApp);
+}
+
+export async function insertLog(userId, log) {
+  const row = {
+    user_id: userId,
+    day: log.day,
+    meal: log.meal,
+    source: log.source,
+    recipe_ref: log.recipeRef ?? null,
+    label: log.label,
+    macros: log.macros || ZERO_MACROS,
+    servings: log.servings ?? 1,
+    menu_entry_id: log.menuEntryId ?? null,
+  };
+  const { data, error } = await supabase.from("logs").insert(row).select().single();
+  if (error) throw error;
+  return logRowToApp(data);
+}
+
+export async function updateLogServings(id, servings) {
+  const { error } = await supabase.from("logs").update({ servings }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteLog(id) {
+  const { error } = await supabase.from("logs").delete().eq("id", id);
+  if (error) throw error;
+}

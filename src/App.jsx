@@ -4,6 +4,7 @@ import { useAuth } from "./lib/auth";
 import {
   fetchRecipes, insertRecipe, fetchMenu, insertMenuEntries, deleteMenuEntries,
   setEntriesMacros, convertEntriesToLibrary, menuRowToItem,
+  fetchLogs, insertLog, updateLogServings, deleteLog,
 } from "./lib/db";
 
 /* =========================================================================
@@ -976,7 +977,7 @@ function WeekStrip({ weekDays, selectedDay, onSelectDay, menu, todayISO, onClear
     <div className="cb-week-wrap">
       <div className="cb-carousel-head">
         <span className="cb-carousel-label">This Week • {formatShortMonthDay(weekDays[0])} – {formatShortMonthDay(weekDays[6])}</span>
-        <button type="button" className="cb-clear-btn" onClick={onClearWeek}>Clear week</button>
+        {onClearWeek ? <button type="button" className="cb-clear-btn" onClick={onClearWeek}>Clear week</button> : null}
       </div>
       <div className="cb-week-strip" role="group" aria-label="Select a day to view its planned meals">
         {weekDays.map((d) => {
@@ -1442,6 +1443,33 @@ const MEALS = [
 ];
 const DEFAULT_MEAL = "dinner";
 
+// v1 daily targets — a sensible placeholder for lean-muscle gain. Replaced by the
+// goals-setup screen (compute-from-stats + editable) in the next pass. Weekly = ×7.
+const DEFAULT_GOALS = { kcal: 2150, protein: 130, fat: 65, carb: 260, proteinFloor: 130 };
+const ZERO_MACROS = { kcal: 0, protein: 0, fat: 0, carb: 0 };
+
+const scaleMacros = (m, s) => ({
+  kcal: (m?.kcal || 0) * s, protein: (m?.protein || 0) * s,
+  fat: (m?.fat || 0) * s, carb: (m?.carb || 0) * s,
+});
+const addMacros = (a, b) => ({
+  kcal: a.kcal + b.kcal, protein: a.protein + b.protein, fat: a.fat + b.fat, carb: a.carb + b.carb,
+});
+const sumLogs = (logs) => logs.reduce((t, l) => addMacros(t, scaleMacros(l.macros, l.servings)), { ...ZERO_MACROS });
+// Segment widths (% of a stacked macro bar) by calorie share.
+const macroSegs = (p, f, c) => {
+  const pc = p * 4, fc = f * 9, cc = c * 4, t = Math.max(pc + fc + cc, 1);
+  return [(pc / t) * 100, (fc / t) * 100, (cc / t) * 100];
+};
+// Per-serving macros for a planned menu item (library recipe or external pick).
+const menuItemMacros = (item, recipes) => {
+  if (item.kind === "library") {
+    const r = recipes.find((x) => x.id === item.id);
+    return r?.macros || ZERO_MACROS;
+  }
+  return item.macros || ZERO_MACROS;
+};
+
 function dateToISO(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -1465,6 +1493,215 @@ function formatFullDate(iso) {
   const d = new Date(`${iso}T00:00:00`);
   return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
 }
+function formatLogTime(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+function menuItemLabel(item) {
+  return item.label || (item.data && item.data.title) || "Meal";
+}
+function menuItemSrc(item) {
+  if (item.kind === "library") return "library recipe";
+  return item.data && item.data.source ? `planned · ${item.data.source}` : "planned";
+}
+
+/* =========================================================================
+   LOG TAB — weekly-goal hero (left rail) + day-slot log (right column)
+   ========================================================================= */
+function GoalRing({ pct }) {
+  const R = 62, C = 2 * Math.PI * R;
+  return (
+    <svg className="lg-ring" viewBox="0 0 146 146" aria-hidden="true">
+      <circle className="lg-ring-track" cx="73" cy="73" r={R} />
+      <circle className="lg-ring-prog" cx="73" cy="73" r={R}
+        style={{ strokeDasharray: C, strokeDashoffset: C * (1 - Math.min(Math.max(pct, 0), 1)) }} />
+    </svg>
+  );
+}
+function GoalBar({ cls, label, val, goal }) {
+  const pct = goal ? Math.min((val / goal) * 100, 100) : 0;
+  return (
+    <div className={`lg-m ${cls}`}>
+      <span className="lg-m-lab">{label}</span>
+      <span className="lg-m-val"><b>{round(val)}</b> / {round(goal)} g</span>
+      <div className="lg-m-bar"><i style={{ width: `${pct}%` }} /></div>
+    </div>
+  );
+}
+function WeeklyGoalPanel({ weekDays, weekTotals, weekGoal, dayTotals, floor }) {
+  const left = Math.max(weekGoal.kcal - weekTotals.kcal, 0);
+  const pct = weekGoal.kcal ? weekTotals.kcal / weekGoal.kcal : 0;
+  const floorMet = dayTotals.protein >= floor;
+  return (
+    <div className="lg-goal">
+      <div className="lg-goal-head">
+        <span className="lg-goal-title">Weekly Goal</span>
+        <span className="lg-goal-rng">{formatShortMonthDay(weekDays[0])} – {formatShortMonthDay(weekDays[6])}</span>
+      </div>
+      <div className="lg-ring-wrap">
+        <GoalRing pct={pct} />
+        <div className="lg-ring-center">
+          <span className="lg-ring-big">{Math.round(left).toLocaleString()}</span>
+          <span className="lg-ring-sub">kcal left</span>
+          <span className="lg-ring-of">{Math.round(weekTotals.kcal).toLocaleString()} / {Math.round(weekGoal.kcal).toLocaleString()}</span>
+        </div>
+      </div>
+      <div className="lg-mrow">
+        <GoalBar cls="p" label="Protein" val={weekTotals.protein} goal={weekGoal.protein} />
+        <GoalBar cls="f" label="Fat" val={weekTotals.fat} goal={weekGoal.fat} />
+        <GoalBar cls="c" label="Carbs" val={weekTotals.carb} goal={weekGoal.carb} />
+      </div>
+      <div className="lg-floor">
+        <div className="lg-floor-ico">P</div>
+        <div className="lg-floor-t">
+          <b>Protein floor {floor} g/day.</b>{" "}
+          {floorMet ? <span className="lg-floor-met">Today met ✓</span> : <>Today <b>{round(dayTotals.protein)}</b>/{floor} g</>}
+        </div>
+      </div>
+    </div>
+  );
+}
+function DailyTotals({ totals, goals }) {
+  const under = totals.protein < goals.proteinFloor;
+  const cell = (label, cls, val, goal, note) => {
+    const pct = goal ? Math.min((val / goal) * 100, 100) : 0;
+    return (
+      <div className={`lg-dm ${cls}`}>
+        <div className="lg-dm-l">{label}</div>
+        <div className="lg-dm-v">{round(val)} <small>/ {round(goal)}</small></div>
+        <div className="lg-dm-b"><i style={{ width: `${pct}%` }} /></div>
+        {note ? <div className="lg-dm-n">{note}</div> : null}
+      </div>
+    );
+  };
+  return (
+    <div className="lg-dtot">
+      {cell("Calories", "", totals.kcal, goals.kcal)}
+      {cell("Protein", under ? "p under" : "p", totals.protein, goals.protein,
+        under ? `${round(goals.proteinFloor - totals.protein)}g to floor` : "floor met ✓")}
+      {cell("Fat", "f", totals.fat, goals.fat)}
+      {cell("Carbs", "c", totals.carb, goals.carb)}
+    </div>
+  );
+}
+function LogMealCard({ title, src, macros, servings, logged, time, onLogIt, onServings, onRemove }) {
+  const scaled = scaleMacros(macros, servings);
+  const s = macroSegs(scaled.protein, scaled.fat, scaled.carb);
+  const mx = servings % 1 ? servings.toFixed(2).replace(/0$/, "") : servings;
+  return (
+    <div className={`lg-card ${logged ? "logged" : "pending"}`}>
+      <div className="lg-card-top">
+        <div>
+          <div className="lg-card-title">{title}</div>
+          {src ? <div className="lg-card-src">{src}</div> : null}
+        </div>
+        <div className="lg-card-macros">
+          <div className="lg-card-kc">{round(scaled.kcal)} <small>kcal · {round(scaled.protein)}P · {round(scaled.fat)}F · {round(scaled.carb)}C</small></div>
+          <div className="lg-card-mini"><span className="s-p" style={{ width: `${s[0]}%` }} /><span className="s-f" style={{ width: `${s[1]}%` }} /><span className="s-c" style={{ width: `${s[2]}%` }} /></div>
+        </div>
+      </div>
+      <div className="lg-card-foot">
+        {logged ? (
+          <>
+            <span className="lg-card-state"><span className="ok">✓ Logged</span>{time ? ` · ${time}` : ""}</span>
+            <span className="lg-card-actions">
+              <span className="lg-stepper">
+                <button type="button" onClick={() => onServings(Math.max(0.25, +(servings - 0.25).toFixed(2)))} aria-label="Fewer servings">–</button>
+                <span className="mx">{mx}×</span>
+                <button type="button" onClick={() => onServings(Math.min(6, +(servings + 0.25).toFixed(2)))} aria-label="More servings">+</button>
+              </span>
+              <button type="button" className="lg-rm" onClick={onRemove} aria-label="Remove log">×</button>
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="lg-card-state">Not logged yet</span>
+            <button type="button" className="lg-logbtn" onClick={onLogIt}>Log it</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+function LogView({ logDay, todayISO, menu, recipes, logs, goals, onLogPlanned, onServings, onRemove, onOpenPicker }) {
+  const dayItems = menu[logDay] || [];
+  const dayLogs = logs.filter((l) => l.day === logDay);
+  const totals = sumLogs(dayLogs);
+  const isToday = logDay === todayISO;
+  return (
+    <div className="lg-view">
+      <div className="lg-day-head">
+        <div>
+          <div className="lg-day-de">{isToday ? "Today · in progress" : "Logged"}</div>
+          <h2 className="lg-day-h2">{formatFullDate(logDay)}</h2>
+        </div>
+        <DailyTotals totals={totals} goals={goals} />
+      </div>
+      <div className="lg-slots">
+        {MEALS.map((meal) => {
+          const planned = dayItems.filter((i) => (i.meal || DEFAULT_MEAL) === meal.key);
+          const slotLogs = dayLogs.filter((l) => l.meal === meal.key);
+          const loggedByEntry = {};
+          slotLogs.forEach((l) => { if (l.menuEntryId) loggedByEntry[l.menuEntryId] = l; });
+          const adhoc = slotLogs.filter((l) => !l.menuEntryId);
+          const hasAny = planned.length > 0 || slotLogs.length > 0;
+          return (
+            <div className="lg-slot" key={meal.key}>
+              <span className={`lg-slabel cb-slot-${meal.key}`}>{meal.label}</span>
+              {planned.map((item, i) => {
+                const log = item.entryId ? loggedByEntry[item.entryId] : null;
+                if (log) {
+                  return <LogMealCard key={`p${i}`} title={menuItemLabel(item)} src={menuItemSrc(item)}
+                    macros={log.macros} servings={log.servings} logged time={formatLogTime(log.loggedAt)}
+                    onServings={(s) => onServings(log.id, s)} onRemove={() => onRemove(log.id)} />;
+                }
+                return <LogMealCard key={`p${i}`} title={menuItemLabel(item)} src={menuItemSrc(item)}
+                  macros={menuItemMacros(item, recipes)} servings={1} logged={false}
+                  onLogIt={() => onLogPlanned(logDay, item)} />;
+              })}
+              {adhoc.map((log) => (
+                <LogMealCard key={log.id} title={log.label} src="from your library"
+                  macros={log.macros} servings={log.servings} logged time={formatLogTime(log.loggedAt)}
+                  onServings={(s) => onServings(log.id, s)} onRemove={() => onRemove(log.id)} />
+              ))}
+              {!hasAny ? (
+                <div className="lg-blank">
+                  <span className="lg-blank-t">Nothing planned for {meal.label.toLowerCase()}.</span>
+                  <button type="button" className="lg-fromlib" onClick={() => onOpenPicker(logDay, meal.key)}>+ From your library</button>
+                  <span className="lg-blank-help">…or describe what you ate in the <b>prompt →</b></span>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+function LogPickerModal({ recipes, meal, onPick, onClose }) {
+  const [q, setQ] = useState("");
+  const filtered = recipes.filter((r) => !q.trim() || r.title.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <div className="cb-modal-backdrop" onClick={onClose}>
+      <div className="cb-modal cb-modal-wide" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Log from library">
+        <div className="cb-modal-head">
+          <span className="cb-modal-title">Log a {meal} from your library</span>
+          <button className="cb-modal-close" type="button" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <input className="lg-picker-search" placeholder="Search recipes…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+        <div className="lg-picker-list">
+          {filtered.map((r) => (
+            <button key={r.id} type="button" className="lg-picker-item" onClick={() => onPick(r)}>
+              <span className="lg-picker-name">{r.title}</span>
+              <span className="lg-picker-macros">{r.macros ? `${round(r.macros.kcal)} · ${round(r.macros.protein)}P` : "—"}</span>
+            </button>
+          ))}
+          {!filtered.length ? <div className="lg-picker-empty">No recipes match.</div> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Cookbook() {
   const { user, signOut } = useAuth();
@@ -1482,11 +1719,15 @@ export default function Cookbook() {
   const [externalMacroStatus, setExternalMacroStatus] = useState({}); // { [urlOrTitle]: { status, error? } }
   const [customRecipes, setCustomRecipes] = useState([]); // recipes generated via "Add to cookbook"
   const [cookbookDraft, setCookbookDraft] = useState(null); // { status, source, data?, error? } awaiting approval
+  const [logs, setLogs] = useState([]); // this week's log entries (Log tab)
+  const [logPicker, setLogPicker] = useState(null); // { iso, meal } — blank-slot "from library" picker
 
   const allRecipes = useMemo(() => [...RECIPES, ...customRecipes], [customRecipes]);
 
   const weekDays = useMemo(() => getCurrentWeekDays(), []);
   const todayISO = useMemo(() => dateToISO(new Date()), []);
+  const weekISOs = useMemo(() => weekDays.map((d) => dateToISO(d)), [weekDays]);
+  const [logDay, setLogDay] = useState(todayISO); // which day the Log tab is showing
 
   // Attaches the React detail-view Component to a DB-loaded custom recipe.
   const hydrateRecipe = (r) => {
@@ -1508,9 +1749,63 @@ export default function Cookbook() {
       } catch (e) {
         console.error("Failed to load your data:", e);
       }
+      // Logs load independently so a missing `logs` table (schema not yet run)
+      // doesn't take the whole app down with it.
+      try {
+        const loadedLogs = await fetchLogs(user.id, weekISOs[0], weekISOs[6]);
+        if (active) setLogs(loadedLogs);
+      } catch (e) {
+        console.warn("Couldn't load logs (has the logs table been created?):", e);
+      }
     })();
     return () => { active = false; };
   }, [user?.id]);
+
+  // ---- macro roll-ups (Log tab) ----
+  const dayTotals = useMemo(() => sumLogs(logs.filter((l) => l.day === logDay)), [logs, logDay]);
+  const weekTotals = useMemo(() => sumLogs(logs.filter((l) => weekISOs.includes(l.day))), [logs, weekISOs]);
+  const weekGoal = useMemo(() => ({
+    kcal: DEFAULT_GOALS.kcal * 7, protein: DEFAULT_GOALS.protein * 7,
+    fat: DEFAULT_GOALS.fat * 7, carb: DEFAULT_GOALS.carb * 7,
+  }), []);
+  // Day-strip dots for the Log tab mark days that already have logs.
+  const loggedDayMap = useMemo(() => {
+    const m = {};
+    logs.forEach((l) => { (m[l.day] = m[l.day] || []).push(l); });
+    return m;
+  }, [logs]);
+
+  // ---- logging actions ----
+  const addLog = async (entry) => {
+    if (!user) return;
+    try {
+      const saved = await insertLog(user.id, entry);
+      setLogs((prev) => [...prev, saved]);
+    } catch (e) {
+      console.error("Failed to log meal:", e);
+    }
+  };
+  // "Log it" on a planned meal → a log linked to that menu entry.
+  const logPlannedMeal = (iso, item) => addLog({
+    day: iso, meal: item.meal || DEFAULT_MEAL,
+    source: item.kind === "library" ? "library" : "external",
+    recipeRef: item.kind === "library" ? item.id : null,
+    label: item.label || (item.data && item.data.title) || "Meal",
+    macros: menuItemMacros(item, allRecipes), servings: 1, menuEntryId: item.entryId || null,
+  });
+  // Blank-slot "+ From your library" → an ad-hoc log (no menu entry).
+  const logLibraryRecipe = (iso, meal, recipe) => addLog({
+    day: iso, meal, source: "library", recipeRef: recipe.id,
+    label: recipe.title, macros: recipe.macros || ZERO_MACROS, servings: 1, menuEntryId: null,
+  });
+  const changeLogServings = (id, servings) => {
+    setLogs((prev) => prev.map((l) => (l.id === id ? { ...l, servings } : l)));
+    updateLogServings(id, servings).catch((e) => console.error("Failed to update servings:", e));
+  };
+  const removeLog = (id) => {
+    setLogs((prev) => prev.filter((l) => l.id !== id));
+    deleteLog(id).catch((e) => console.error("Failed to remove log:", e));
+  };
 
   // Two menu items match only within the same meal slot, so the same recipe can sit in,
   // say, both breakfast and dinner on one day without one delete removing both.
@@ -2019,6 +2314,92 @@ export default function Cookbook() {
           border: 1px dashed #454B55; background: rgba(244,239,228,0.03);
         }
         .cb-slot-empty-text { font-family: 'Work Sans', sans-serif; font-size: 12px; color: #6E6B60; }
+
+        /* ---------- Log tab ---------- */
+        .lg-goal { background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 16px; padding: 18px; margin-bottom: 16px; }
+        .lg-goal-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+        .lg-goal-title { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #F4EFE4; }
+        .lg-goal-rng { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A9A48F; }
+        .lg-ring-wrap { position: relative; width: 146px; height: 146px; margin: 2px auto 12px; }
+        .lg-ring { width: 146px; height: 146px; transform: rotate(-90deg); }
+        .lg-ring-track { fill: none; stroke: rgba(244,239,228,0.09); stroke-width: 11; }
+        .lg-ring-prog { fill: none; stroke: #C99A3E; stroke-width: 11; stroke-linecap: round; transition: stroke-dashoffset 0.6s cubic-bezier(0.4,0,0.2,1); }
+        .lg-ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+        .lg-ring-big { font-family: 'JetBrains Mono', monospace; font-size: 25px; font-weight: 600; color: #F4EFE4; }
+        .lg-ring-sub { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #A9A48F; letter-spacing: 0.06em; text-transform: uppercase; margin-top: 2px; }
+        .lg-ring-of { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7D7A6D; margin-top: 5px; }
+        .lg-mrow { display: flex; flex-direction: column; gap: 11px; }
+        .lg-m { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; align-items: baseline; }
+        .lg-m-lab { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: #A9A48F; }
+        .lg-m-val { grid-column: 2; grid-row: 1; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #F4EFE4; }
+        .lg-m-bar { grid-column: 1 / -1; height: 7px; background: rgba(244,239,228,0.08); border-radius: 4px; overflow: hidden; margin-top: 1px; }
+        .lg-m-bar > i { display: block; height: 100%; border-radius: 4px; }
+        .lg-m.p .lg-m-bar > i { background: #C99A3E; } .lg-m.f .lg-m-bar > i { background: #C58A6B; } .lg-m.c .lg-m-bar > i { background: #6E9BC4; }
+        .lg-floor { margin-top: 15px; padding-top: 13px; border-top: 1px solid #3A3F4A; display: flex; align-items: center; gap: 9px; }
+        .lg-floor-ico { width: 26px; height: 26px; flex: 0 0 auto; border-radius: 8px; display: grid; place-items: center; background: rgba(201,154,62,0.14); color: #C99A3E; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 12px; }
+        .lg-floor-t { font-family: 'Work Sans', sans-serif; font-size: 12px; color: #A9A48F; line-height: 1.35; }
+        .lg-floor-t b { color: #F4EFE4; font-weight: 600; } .lg-floor-met { color: #8FB15C; font-weight: 600; }
+
+        .lg-view { display: flex; flex-direction: column; gap: 16px; }
+        .lg-day-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 13px; border-bottom: 1px solid rgba(244,239,228,0.1); }
+        .lg-day-de { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #A9A48F; margin-bottom: 5px; }
+        .lg-day-h2 { font-family: 'Libre Caslon Display', serif; font-size: 25px; margin: 0; line-height: 1; color: #F4EFE4; }
+        .lg-dtot { display: flex; gap: 16px; flex-wrap: wrap; }
+        .lg-dm { min-width: 92px; }
+        .lg-dm-l { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #A9A48F; }
+        .lg-dm-v { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 600; margin: 2px 0 4px; color: #F4EFE4; }
+        .lg-dm-v small { color: #7D7A6D; font-weight: 400; font-size: 12px; }
+        .lg-dm-b { height: 5px; width: 92px; background: rgba(244,239,228,0.08); border-radius: 3px; overflow: hidden; }
+        .lg-dm-b > i { display: block; height: 100%; border-radius: 3px; background: #C99A3E; }
+        .lg-dm.p .lg-dm-b > i { background: #C99A3E; } .lg-dm.f .lg-dm-b > i { background: #C58A6B; } .lg-dm.c .lg-dm-b > i { background: #6E9BC4; }
+        .lg-dm.under .lg-dm-v { color: #D9736A; } .lg-dm.under .lg-dm-b > i { background: #D9736A; }
+        .lg-dm-n { font-family: 'JetBrains Mono', monospace; font-size: 10px; margin-top: 4px; color: #8FB15C; }
+        .lg-dm.under .lg-dm-n { color: #D9736A; }
+
+        .lg-slots { display: flex; flex-direction: column; gap: 16px; }
+        .lg-slot { display: flex; flex-direction: column; gap: 9px; }
+        .lg-slabel { align-self: flex-start; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #20242B; padding: 3px 11px; border-radius: 999px; }
+
+        .lg-card { background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 14px; padding: 15px 17px; position: relative; }
+        .lg-card.logged { border-color: rgba(143,177,92,0.4); }
+        .lg-card.logged::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 3px; background: #8FB15C; }
+        .lg-card.pending .lg-card-macros { opacity: 0.5; }
+        .lg-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+        .lg-card-title { font-family: 'Libre Caslon Display', serif; font-size: 18px; line-height: 1.2; color: #F4EFE4; }
+        .lg-card-src { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #7D7A6D; letter-spacing: 0.04em; margin-top: 3px; }
+        .lg-card-macros { text-align: right; flex: 0 0 auto; }
+        .lg-card-kc { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; color: #F4EFE4; }
+        .lg-card-kc small { color: #A9A48F; font-weight: 400; font-size: 11px; }
+        .lg-card-mini { width: 180px; height: 7px; display: flex; border-radius: 4px; overflow: hidden; background: rgba(244,239,228,0.08); margin-top: 7px; margin-left: auto; }
+        .lg-card-mini > span { height: 100%; flex: 0 0 auto; }
+        .lg-card-mini .s-p { background: #C99A3E; } .lg-card-mini .s-f { background: #C58A6B; } .lg-card-mini .s-c { background: #6E9BC4; }
+        .lg-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 13px; padding-top: 12px; border-top: 1px solid #3A3F4A; }
+        .lg-card-state { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7D7A6D; display: flex; align-items: center; gap: 8px; }
+        .lg-card-state .ok { color: #8FB15C; }
+        .lg-card-actions { display: flex; gap: 12px; align-items: center; }
+        .lg-logbtn { background: #C99A3E; color: #20242B; border: none; border-radius: 999px; padding: 8px 18px; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; letter-spacing: 0.03em; cursor: pointer; }
+        .lg-logbtn:hover { background: #DCAE55; }
+        .lg-stepper { display: inline-flex; align-items: center; gap: 2px; background: #23282F; border: 1px solid #3A3F4A; border-radius: 999px; }
+        .lg-stepper button { width: 24px; height: 24px; border: none; background: none; color: #F4EFE4; font-size: 15px; line-height: 1; border-radius: 50%; cursor: pointer; }
+        .lg-stepper button:hover { background: #343A45; }
+        .lg-stepper .mx { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A9A48F; min-width: 30px; text-align: center; }
+        .lg-rm { border: none; background: none; color: #7D7A6D; font-size: 16px; border-radius: 6px; cursor: pointer; } .lg-rm:hover { color: #D9736A; }
+
+        .lg-blank { border: 1px dashed #3F4550; border-radius: 14px; background: rgba(32,36,43,0.4); padding: 15px 17px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+        .lg-blank-t { font-family: 'Work Sans', sans-serif; font-size: 13px; color: #7D7A6D; flex: 0 0 auto; }
+        .lg-fromlib { background: none; border: 1px solid #C99A3E; color: #C99A3E; border-radius: 999px; padding: 8px 15px; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; cursor: pointer; }
+        .lg-fromlib:hover { background: rgba(201,154,62,0.12); }
+        .lg-blank-help { font-family: 'Work Sans', sans-serif; font-size: 12px; color: #7D7A6D; margin-left: auto; }
+        .lg-blank-help b { color: #A9A48F; font-weight: 600; }
+
+        .lg-picker-search { width: 100%; margin: 4px 0 12px; background: #20242B; border: 1px solid #3A3F4A; border-radius: 10px; padding: 10px 13px; color: #F4EFE4; font-family: 'Work Sans', sans-serif; font-size: 14px; outline: none; }
+        .lg-picker-search:focus { border-color: #C99A3E; }
+        .lg-picker-list { display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow-y: auto; }
+        .lg-picker-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: none; border: none; color: #F4EFE4; padding: 10px; border-radius: 9px; text-align: left; cursor: pointer; }
+        .lg-picker-item:hover { background: #343A45; }
+        .lg-picker-name { font-family: 'Libre Caslon Display', serif; font-size: 15px; }
+        .lg-picker-macros { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A9A48F; flex: 0 0 auto; }
+        .lg-picker-empty { font-family: 'Work Sans', sans-serif; font-size: 13px; color: #7D7A6D; padding: 14px 10px; text-align: center; }
         .cb-plan-empty { padding: 12px 2px 28px; max-width: 480px; }
         .cb-plan-empty-title { font-family: 'Libre Caslon Display', serif; font-size: 17px; color: #F4EFE4; margin-bottom: 8px; }
         .cb-plan-empty-sub { font-family: 'Work Sans', sans-serif; font-size: 13px; color: #A9A48F; line-height: 1.55; }
@@ -2501,6 +2882,18 @@ export default function Cookbook() {
                   <PlanMacroSummary weekDays={weekDays} selectedDay={selectedDay} menu={menu} recipes={allRecipes} />
                 </>
               )}
+              {activeTab === "log" && (
+                <>
+                  <WeeklyGoalPanel weekDays={weekDays} weekTotals={weekTotals} weekGoal={weekGoal} dayTotals={dayTotals} floor={DEFAULT_GOALS.proteinFloor} />
+                  <WeekStrip
+                    weekDays={weekDays}
+                    selectedDay={logDay}
+                    onSelectDay={(iso) => { if (iso) setLogDay(iso); }}
+                    menu={loggedDayMap}
+                    todayISO={todayISO}
+                  />
+                </>
+              )}
               <div className="cb-prompt-block">
                 <div className="cb-prompt-box">
                   <textarea
@@ -2589,6 +2982,19 @@ export default function Cookbook() {
                   externalMacroStatus={externalMacroStatus}
                   onAddToCookbook={openAddToCookbook}
                 />
+              ) : activeTab === "log" ? (
+                <LogView
+                  logDay={logDay}
+                  todayISO={todayISO}
+                  menu={menu}
+                  recipes={allRecipes}
+                  logs={logs}
+                  goals={DEFAULT_GOALS}
+                  onLogPlanned={logPlannedMeal}
+                  onServings={changeLogServings}
+                  onRemove={removeLog}
+                  onOpenPicker={(iso, meal) => setLogPicker({ iso, meal })}
+                />
               ) : (
                 <>
                   <div className="cb-toolbar">
@@ -2672,6 +3078,14 @@ export default function Cookbook() {
           onApprove={approveCookbookDraft}
           onReject={rejectCookbookDraft}
           onRetry={retryCookbookDraft}
+        />
+      ) : null}
+      {logPicker ? (
+        <LogPickerModal
+          recipes={allRecipes}
+          meal={logPicker.meal}
+          onPick={(recipe) => { logLibraryRecipe(logPicker.iso, logPicker.meal, recipe); setLogPicker(null); }}
+          onClose={() => setLogPicker(null)}
         />
       ) : null}
     </div>

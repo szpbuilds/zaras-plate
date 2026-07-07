@@ -52,14 +52,39 @@ create table if not exists public.menu_entries (
   created_at     timestamptz not null default now()
 );
 
+-- ---------------------------------------------------------------------------
+-- logs: what was actually eaten (Log tab / macro tracker)
+--   * `day` is the date the meal counts toward; `logged_at` is the real moment.
+--   * `macros` is a self-contained per-serving snapshot {kcal,protein,fat,carb},
+--     so a log survives even if the source recipe is later edited or deleted.
+--   * `menu_entry_id` links a log back to the planned meal it came from (null for
+--     ad-hoc logs); on delete of the plan entry it nulls out, leaving the log intact.
+-- ---------------------------------------------------------------------------
+create table if not exists public.logs (
+  id             uuid primary key default gen_random_uuid(),
+  user_id        uuid not null references auth.users (id) on delete cascade,
+  logged_at      timestamptz not null default now(),
+  day            date not null,
+  meal           text not null check (meal in ('breakfast','lunch','snack','dinner')),
+  source         text not null check (source in ('library','external','freeform')),
+  recipe_ref     text,
+  label          text,
+  macros         jsonb,
+  servings       numeric not null default 1,
+  menu_entry_id  uuid references public.menu_entries (id) on delete set null,
+  created_at     timestamptz not null default now()
+);
+
 create index if not exists menu_entries_user_day_idx on public.menu_entries (user_id, day);
 create index if not exists recipes_user_idx on public.recipes (user_id);
+create index if not exists logs_user_day_idx on public.logs (user_id, day);
 
 -- ---------------------------------------------------------------------------
 -- Row-Level Security: each user sees and edits only their own rows
 -- ---------------------------------------------------------------------------
 alter table public.recipes       enable row level security;
 alter table public.menu_entries  enable row level security;
+alter table public.logs          enable row level security;
 
 drop policy if exists "own recipes" on public.recipes;
 create policy "own recipes" on public.recipes
@@ -69,6 +94,12 @@ create policy "own recipes" on public.recipes
 
 drop policy if exists "own menu entries" on public.menu_entries;
 create policy "own menu entries" on public.menu_entries
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "own logs" on public.logs;
+create policy "own logs" on public.logs
   for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
