@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Zara's Plate</title>
+    <style>
+      /* Full-bleed dark background — kill the default body margin (the light frame)
+         and paint html/body the app's dark so no light shows in margins or the
+         iOS rubber-band overscroll area. No overflow-x:hidden here — it would turn
+         body into a scroll container and break the sticky left column. */
+      html, body { margin: 0; padding: 0; background: #20242B; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

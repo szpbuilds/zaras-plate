@@ -922,9 +922,8 @@ function RecipeCard({ recipe, index, onOpen, onAddToMenu, onQuickAddToday, inPla
   );
 }
 
-function CarouselCard({ r, imgFailed, onImgError, onAddToPrompt, onAddToMenu, onQuickAddToday }) {
+function CarouselCard({ r, onAddToPrompt, onAddToMenu, onQuickAddToday }) {
   const [justAdded, setJustAdded] = useState(false);
-  const showImage = r.imageUrl && !imgFailed;
   const menuItem = { kind: "external", data: r, label: r.title };
   const longPress = useLongPress(
     () => onAddToMenu(menuItem),
@@ -936,13 +935,6 @@ function CarouselCard({ r, imgFailed, onImgError, onAddToPrompt, onAddToMenu, on
   );
   return (
     <div className="cb-rcard">
-      <div className={`cb-rcard-media ${showImage ? "" : "no-image"}`}>
-        {showImage ? (
-          <img src={r.imageUrl} alt="" onError={onImgError} />
-        ) : (
-          <span className="cb-rcard-fallback">{(r.source || "?").charAt(0)}</span>
-        )}
-      </div>
       <div className="cb-rcard-body">
         <div className="cb-rcard-source">
           {r.source}{r.badge ? <span className="cb-rcard-badge"> · {r.badge}</span> : null}
@@ -1941,15 +1933,14 @@ export default function Cookbook() {
   const [dailyRecipes, setDailyRecipes] = useState([]);
   const [recipesLoading, setRecipesLoading] = useState(false);
   const [recipesError, setRecipesError] = useState(null);
-  const [imgFailed, setImgFailed] = useState({});
 
   const todayStr = () => new Date().toISOString().slice(0, 10);
 
   const SEARCH_PROMPT =
-    "Search the web for 5 dinner recipes from reputable cooking websites (for example NYT Cooking, Serious Eats, Bon Appétit, Food52, Epicurious, America's Test Kitchen / Cook's Illustrated, AllRecipes, Smitten Kitchen, Budget Bytes, King Arthur Baking, The Kitchn) that are well-suited for someone trying to build lean muscle — genuinely high in protein per serving (roughly 30g or more), built around a whole-food protein source (chicken, beef, pork, fish, shrimp, tofu, or legumes), and NOT a dessert, side dish, snack, or beverage. Do not use TikTok or YouTube as the source platform — a recipe page that happens to embed a video is fine, but the source itself must be a proper recipe/article page. Choose a varied mix of proteins and cuisines rather than 5 similar dishes. Respond with ONLY a JSON array (no markdown, no code fences, no commentary before or after) of exactly 5 objects shaped exactly like this: {\"title\": \"recipe name\", \"source\": \"site name\", \"url\": \"direct link to the recipe page\", \"teaser\": \"one sentence under 20 words describing the dish, in your own words\", \"imageUrl\": \"a direct image URL if you can find one with confidence, otherwise an empty string\"}";
+    "Search the web for 5 dinner recipes from reputable cooking websites (for example NYT Cooking, Serious Eats, Bon Appétit, Food52, Epicurious, America's Test Kitchen / Cook's Illustrated, AllRecipes, Smitten Kitchen, Budget Bytes, King Arthur Baking, The Kitchn) that are well-suited for someone trying to build lean muscle — genuinely high in protein per serving (roughly 30g or more), built around a whole-food protein source (chicken, beef, pork, fish, shrimp, tofu, or legumes), and NOT a dessert, side dish, snack, or beverage. Do not use TikTok or YouTube as the source platform — a recipe page that happens to embed a video is fine, but the source itself must be a proper recipe/article page. Choose a varied mix of proteins and cuisines rather than 5 similar dishes. Respond with ONLY a JSON array (no markdown, no code fences, no commentary before or after) of exactly 5 objects shaped exactly like this: {\"title\": \"recipe name\", \"source\": \"site name\", \"url\": \"direct link to the recipe page\", \"teaser\": \"one sentence under 20 words describing the dish, in your own words\"}";
 
   const MEMORY_PROMPT =
-    "Live web search isn't available right now. From your own knowledge, name 5 dinner recipes commonly found on reputable cooking websites (for example NYT Cooking, Serious Eats, Bon Appétit, Food52, Epicurious, America's Test Kitchen / Cook's Illustrated, AllRecipes, Smitten Kitchen, Budget Bytes, King Arthur Baking, The Kitchn) that are well-suited for someone trying to build lean muscle — genuinely high in protein per serving (roughly 30g or more), built around a whole-food protein source (chicken, beef, pork, fish, shrimp, tofu, or legumes), and NOT a dessert, side dish, snack, or beverage. Choose a varied mix of proteins and cuisines. Only include a url if you're genuinely confident it's correct — otherwise leave it as an empty string rather than guessing, since a wrong link is worse than no link. Respond with ONLY a JSON array (no markdown, no code fences, no commentary before or after) of exactly 5 objects shaped exactly like this: {\"title\": \"recipe name\", \"source\": \"site name\", \"url\": \"direct link if you're confident, otherwise empty string\", \"teaser\": \"one sentence under 20 words describing the dish, in your own words\", \"imageUrl\": \"\"}";
+    "Live web search isn't available right now. From your own knowledge, name 5 dinner recipes commonly found on reputable cooking websites (for example NYT Cooking, Serious Eats, Bon Appétit, Food52, Epicurious, America's Test Kitchen / Cook's Illustrated, AllRecipes, Smitten Kitchen, Budget Bytes, King Arthur Baking, The Kitchn) that are well-suited for someone trying to build lean muscle — genuinely high in protein per serving (roughly 30g or more), built around a whole-food protein source (chicken, beef, pork, fish, shrimp, tofu, or legumes), and NOT a dessert, side dish, snack, or beverage. Choose a varied mix of proteins and cuisines. Only include a url if you're genuinely confident it's correct — otherwise leave it as an empty string rather than guessing, since a wrong link is worse than no link. Respond with ONLY a JSON array (no markdown, no code fences, no commentary before or after) of exactly 5 objects shaped exactly like this: {\"title\": \"recipe name\", \"source\": \"site name\", \"url\": \"direct link if you're confident, otherwise empty string\", \"teaser\": \"one sentence under 20 words describing the dish, in your own words\"}";
 
   // Calls the "claude" Supabase Edge Function, which holds the Anthropic API key
   // server-side and forwards to api.anthropic.com. Everything that calls this still
@@ -2158,7 +2149,6 @@ export default function Cookbook() {
     try {
       const recipes = await fetchDailyRecipes();
       setDailyRecipes(recipes);
-      setImgFailed({});
       await savePrefs("cookbook:eat:daily-picks", { date: todayStr(), recipes });
     } catch (e) {
       setRecipesError(`Couldn't load today's picks — ${e && e.message ? e.message : "unknown error"}.`);
@@ -2316,7 +2306,7 @@ export default function Cookbook() {
         .cb-slot-empty-text { font-family: 'Work Sans', sans-serif; font-size: 12px; color: #6E6B60; }
 
         /* ---------- Log tab ---------- */
-        .lg-goal { background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 16px; padding: 18px; margin-bottom: 16px; }
+        .lg-goal { background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 16px; padding: 18px; margin: 0 0 18px; }
         .lg-goal-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
         .lg-goal-title { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #F4EFE4; }
         .lg-goal-rng { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A9A48F; }
@@ -2547,11 +2537,7 @@ export default function Cookbook() {
           display: flex; flex-direction: column; text-align: left;
         }
         @media (min-width: 768px) { .cb-rcard { flex: 0 0 44%; } }
-        .cb-rcard-media { height: 100px; background: #3A3F4A; display: flex; align-items: center; justify-content: center; }
-        .cb-rcard-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .cb-rcard-media.no-image { background: linear-gradient(135deg, #C99A3E, #20242B); }
-        .cb-rcard-fallback { font-family: 'Libre Caslon Display', serif; font-size: 28px; color: #F4EFE4; opacity: 0.85; }
-        .cb-rcard-body { padding: 10px 12px 4px; flex: 1; }
+        .cb-rcard-body { padding: 14px 14px 4px; flex: 1; }
         .cb-rcard-source { font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #8A8267; margin-bottom: 3px; }
         .cb-rcard-badge { text-transform: none; letter-spacing: 0; font-style: italic; opacity: 0.85; }
         .cb-rcard-title { font-family: 'Libre Caslon Display', serif; font-size: 14px; color: #20242B; line-height: 1.25; margin-bottom: 4px; }
@@ -2613,9 +2599,17 @@ export default function Cookbook() {
         .cb-prompt-send:disabled { background: #4A4636; color: #7D7A6D; cursor: not-allowed; }
         .cb-empty { color: #A9A48F; font-family: 'Work Sans', sans-serif; font-size: 14px; padding: 12px 2px; }
         .cb-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+        /* Tablet (incl. iPad in both orientations): 50/50. */
         @media (min-width: 768px) {
-          .cb-layout { display: grid; grid-template-columns: 3fr 7fr; gap: 48px; align-items: start; }
-          .cb-left { position: sticky; top: 32px; margin-bottom: 0; }
+          .cb-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; }
+          /* min-width:0 keeps each column at its intended share regardless of content width
+             (grid items default to min-width:auto, which lets wide content blow the ratio). */
+          .cb-left { position: sticky; top: 32px; margin-bottom: 0; min-width: 0; }
+          .cb-right { min-width: 0; }
+        }
+        /* Desktop: 30/70. */
+        @media (min-width: 1280px) {
+          .cb-layout { grid-template-columns: 3fr 7fr; }
         }
         .cb-card {
           text-align: left; background: #F8F3E6; border: none; border-top: 5px solid var(--card-accent);
@@ -2851,20 +2845,15 @@ export default function Cookbook() {
                     <div className="cb-carousel-loading">Finding today's picks…</div>
                   ) : (
                     <div className="cb-carousel-track">
-                      {dailyRecipes.map((r, i) => {
-                        const key = r.url || i;
-                        return (
-                          <CarouselCard
-                            key={key}
-                            r={r}
-                            imgFailed={imgFailed[key]}
-                            onImgError={() => setImgFailed((f) => ({ ...f, [key]: true }))}
-                            onAddToPrompt={addRecipeToPrompt}
-                            onAddToMenu={openAddToMenuModal}
-                            onQuickAddToday={quickAddToday}
-                          />
-                        );
-                      })}
+                      {dailyRecipes.map((r, i) => (
+                        <CarouselCard
+                          key={r.url || i}
+                          r={r}
+                          onAddToPrompt={addRecipeToPrompt}
+                          onAddToMenu={openAddToMenuModal}
+                          onQuickAddToday={quickAddToday}
+                        />
+                      ))}
                     </div>
                   )}
                 </div>
@@ -2884,7 +2873,6 @@ export default function Cookbook() {
               )}
               {activeTab === "log" && (
                 <>
-                  <WeeklyGoalPanel weekDays={weekDays} weekTotals={weekTotals} weekGoal={weekGoal} dayTotals={dayTotals} floor={DEFAULT_GOALS.proteinFloor} />
                   <WeekStrip
                     weekDays={weekDays}
                     selectedDay={logDay}
@@ -2892,6 +2880,7 @@ export default function Cookbook() {
                     menu={loggedDayMap}
                     todayISO={todayISO}
                   />
+                  <WeeklyGoalPanel weekDays={weekDays} weekTotals={weekTotals} weekGoal={weekGoal} dayTotals={dayTotals} floor={DEFAULT_GOALS.proteinFloor} />
                 </>
               )}
               <div className="cb-prompt-block">
