@@ -161,5 +161,10 @@ No interim static preview — the shared URL waits for the backend-backed build 
 
 - **Drag & drop in the Plan tab** — reorder recipes between meal slots and across days by dragging,
   instead of the current remove-and-re-add. Plan-tab UX; independent of logging.
+- **Filter Today's Picks by cooking method** (Eat tab) — let the user narrow the daily picks to a
+  cooking method: air fryer, oven, one-pan/one-pot, stovetop, grill, no-cook, etc. Likely needs the
+  recipe-search prompt (`SEARCH_PROMPT` / `MEMORY_PROMPT`) to tag each pick with a `method`, plus a
+  filter control (chips or a select) in the Today's Picks section — and the picks refresh/narrow to
+  the chosen method.
 - **Freeform AI logging** and **weight / measurement tracking** — deferred from the logging pass
   (see track 2 → Enhancements).
