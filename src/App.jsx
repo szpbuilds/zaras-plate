@@ -1695,6 +1695,64 @@ function LogPickerModal({ recipes, meal, onPick, onClose }) {
   );
 }
 
+/* =========================================================================
+   PLAN — calendar view (week grid: days across, meal slots down)
+   ========================================================================= */
+function PlanCalCard({ item, mealKey, onOpen, onRemove }) {
+  const title = item.label || (item.data && item.data.title) || "Meal";
+  const openable = item.kind === "library";
+  return (
+    <div
+      className={`pc-card pc-${mealKey}`}
+      role={openable ? "button" : undefined}
+      tabIndex={openable ? 0 : undefined}
+      onClick={openable ? () => onOpen(item.id) : undefined}
+      onKeyDown={openable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(item.id); } } : undefined}
+    >
+      <span className="pc-card-title">{title}</span>
+      <button className="pc-card-rm" type="button" aria-label="Remove from plan"
+        onClick={(e) => { e.stopPropagation(); onRemove(); }}>×</button>
+    </div>
+  );
+}
+function PlanCalendar({ weekDays, todayISO, menu, onOpenRecipe, onRequestDelete }) {
+  return (
+    <div className="pc">
+      <div className="pc-headrow">
+        {weekDays.map((d) => {
+          const iso = dateToISO(d);
+          return (
+            <div key={iso} className={`pc-head ${iso === todayISO ? "today" : ""}`}>
+              <div className="pc-head-day">{WEEKDAY_LABELS[d.getDay()]}</div>
+              <div className="pc-head-num">{d.getDate()}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="pc-grid">
+        {MEALS.map((meal) =>
+          weekDays.map((d) => {
+            const iso = dateToISO(d);
+            const items = (menu[iso] || []).filter((i) => (i.meal || DEFAULT_MEAL) === meal.key);
+            return (
+              <div key={`${meal.key}-${iso}`} className={`pc-cell ${iso === todayISO ? "today" : ""}`}>
+                {items.length ? (
+                  items.map((item, i) => (
+                    <PlanCalCard key={i} item={item} mealKey={meal.key}
+                      onOpen={onOpenRecipe} onRemove={() => onRequestDelete(iso, item)} />
+                  ))
+                ) : (
+                  <span className="pc-slot-empty">No {meal.label.toLowerCase()} planned</span>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Cookbook() {
   const { user, signOut } = useAuth();
   const [query, setQuery] = useState("");
@@ -1704,6 +1762,7 @@ export default function Cookbook() {
   const [showPromptStarters, setShowPromptStarters] = useState(false);
   const [activeId, setActiveId] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
+  const [planView, setPlanView] = useState("list"); // "list" | "calendar"
   const [menu, setMenu] = useState({}); // { "YYYY-MM-DD": [{ kind: "library", id } | { kind: "external", data }] }
   const [pendingMenuItem, setPendingMenuItem] = useState(null); // item awaiting a day pick in the modal
   const [confirmAction, setConfirmAction] = useState(null); // { type: "clear-day" | "clear-week", iso?, label }
@@ -2390,6 +2449,32 @@ export default function Cookbook() {
         .lg-picker-name { font-family: 'Libre Caslon Display', serif; font-size: 15px; }
         .lg-picker-macros { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A9A48F; flex: 0 0 auto; }
         .lg-picker-empty { font-family: 'Work Sans', sans-serif; font-size: 13px; color: #7D7A6D; padding: 14px 10px; text-align: center; }
+
+        /* ---------- Plan calendar view ---------- */
+        .plan-view-toggle { display: inline-flex; gap: 3px; background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 999px; padding: 3px; margin-bottom: 16px; }
+        .plan-view-toggle button { border: none; background: none; color: #A9A48F; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
+        .plan-view-toggle button.active { background: #C99A3E; color: #20242B; }
+        .plan-view-toggle button:not(.active):hover { color: #F4EFE4; }
+        /* Day/date labels sit ABOVE the grid. The header row mirrors the grid's columns
+           (same template + 1px gap, 1px side margin for the grid's border) so each label
+           centers over its column. */
+        .pc-headrow { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; margin: 0 1px 10px; }
+        .pc-head { min-width: 0; text-align: center; padding: 0 2px 2px; }
+        .pc-head-day { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: #A9A48F; }
+        .pc-head-num { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 600; color: #F4EFE4; margin-top: 1px; }
+        .pc-head.today .pc-head-num { color: #C99A3E; }
+        /* The rectangle: 1px gaps over a line-colored background paint the internal grid lines. */
+        .pc-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; background: #333A45; border: 1px solid #333A45; border-radius: 12px; overflow: hidden; }
+        .pc-cell { min-width: 0; background: #23282F; min-height: 74px; padding: 7px 5px; display: flex; flex-direction: column; gap: 5px; justify-content: center; }
+        .pc-cell.today { background: #262B33; }
+        .pc-card { position: relative; min-width: 0; background: #2A2F38; border-left: 3px solid #C99A3E; border-radius: 5px; padding: 6px 14px 6px 8px; cursor: pointer; }
+        .pc-card.pc-breakfast { border-left-color: #6E9BC4; } .pc-card.pc-lunch { border-left-color: #8FB15C; }
+        .pc-card.pc-snack { border-left-color: #A784C4; } .pc-card.pc-dinner { border-left-color: #C99A3E; }
+        .pc-card:hover { background: #31353F; }
+        .pc-card-title { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-family: 'Libre Caslon Display', serif; font-size: 12px; line-height: 1.25; color: #F4EFE4; overflow-wrap: anywhere; }
+        .pc-card-rm { position: absolute; top: 2px; right: 2px; border: none; background: none; color: #7D7A6D; font-size: 13px; line-height: 1; cursor: pointer; opacity: 0.55; }
+        .pc-card-rm:hover { color: #D9736A; opacity: 1; }
+        .pc-slot-empty { font-family: 'Work Sans', sans-serif; font-size: 10px; color: #5E5B52; text-align: center; line-height: 1.25; }
         .cb-plan-empty { padding: 12px 2px 28px; max-width: 480px; }
         .cb-plan-empty-title { font-family: 'Libre Caslon Display', serif; font-size: 17px; color: #F4EFE4; margin-bottom: 8px; }
         .cb-plan-empty-sub { font-family: 'Work Sans', sans-serif; font-size: 13px; color: #A9A48F; line-height: 1.55; }
@@ -2956,21 +3041,37 @@ export default function Cookbook() {
                   <active.Component />
                 </div>
               ) : activeTab === "plan" ? (
-                <PlanView
-                  weekDays={weekDays}
-                  selectedDay={selectedDay}
-                  todayISO={todayISO}
-                  menu={menu}
-                  recipes={allRecipes}
-                  onOpenRecipe={setActiveId}
-                  onAddToMenu={openAddToMenuModal}
-                  onQuickAddToday={quickAddToday}
-                  onClearDay={requestClearDay}
-                  onRequestDelete={requestDeleteFromMenu}
-                  onCalculateMacros={calculateExternalMacros}
-                  externalMacroStatus={externalMacroStatus}
-                  onAddToCookbook={openAddToCookbook}
-                />
+                <>
+                  <div className="plan-view-toggle" role="group" aria-label="Plan view">
+                    <button type="button" className={planView === "list" ? "active" : ""} onClick={() => setPlanView("list")}>List</button>
+                    <button type="button" className={planView === "calendar" ? "active" : ""} onClick={() => setPlanView("calendar")}>Calendar</button>
+                  </div>
+                  {planView === "calendar" ? (
+                    <PlanCalendar
+                      weekDays={weekDays}
+                      todayISO={todayISO}
+                      menu={menu}
+                      onOpenRecipe={setActiveId}
+                      onRequestDelete={requestDeleteFromMenu}
+                    />
+                  ) : (
+                    <PlanView
+                      weekDays={weekDays}
+                      selectedDay={selectedDay}
+                      todayISO={todayISO}
+                      menu={menu}
+                      recipes={allRecipes}
+                      onOpenRecipe={setActiveId}
+                      onAddToMenu={openAddToMenuModal}
+                      onQuickAddToday={quickAddToday}
+                      onClearDay={requestClearDay}
+                      onRequestDelete={requestDeleteFromMenu}
+                      onCalculateMacros={calculateExternalMacros}
+                      externalMacroStatus={externalMacroStatus}
+                      onAddToCookbook={openAddToCookbook}
+                    />
+                  )}
+                </>
               ) : activeTab === "log" ? (
                 <LogView
                   logDay={logDay}
