@@ -1763,6 +1763,7 @@ export default function Cookbook() {
   const [activeId, setActiveId] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
   const [planView, setPlanView] = useState("list"); // "list" | "calendar"
+  const [immersive, setImmersive] = useState(false); // full-screen mode across all tabs
   const [menu, setMenu] = useState({}); // { "YYYY-MM-DD": [{ kind: "library", id } | { kind: "external", data }] }
   const [pendingMenuItem, setPendingMenuItem] = useState(null); // item awaiting a day pick in the modal
   const [confirmAction, setConfirmAction] = useState(null); // { type: "clear-day" | "clear-week", iso?, label }
@@ -2251,6 +2252,169 @@ export default function Cookbook() {
     e.target.style.height = e.target.scrollHeight + "px";
   };
 
+  // Extracted so the same prompt, plan toggle, and tab content render in both the
+  // normal shell and the full-screen immersive overlay without duplication.
+  const promptBox = (
+    <div className="cb-prompt-box">
+      <textarea
+        key={activeTab}
+        className="cb-prompt-input"
+        placeholder={activeTabConfig.placeholder}
+        value={prompts[activeTab]}
+        onChange={(e) => { setPrompts((p) => ({ ...p, [activeTab]: e.target.value })); autoGrow(e); }}
+        onKeyDown={handlePromptKeyDown}
+        rows={3}
+      />
+      <div className="cb-prompt-bottom-row">
+        {activeTab === "eat" && (
+          <div className="cb-prompt-starters">
+            {PROMPT_STARTERS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className="cb-prompt-starter"
+                disabled={!showPromptStarters}
+                onClick={() => insertPromptStarter(s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+        {activeTab === "plan" && (
+          <div className="cb-prompt-starters">
+            {PLAN_PROMPT_STARTERS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className="cb-prompt-starter"
+                onClick={() => insertPromptStarter(s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          className="cb-prompt-send"
+          type="button"
+          aria-label="Submit prompt"
+          disabled={!prompts[activeTab].trim()}
+          onClick={() => submitPrompt(activeTab)}
+        >
+          ↑
+        </button>
+      </div>
+    </div>
+  );
+
+  const planViewToggle = (
+    <div className="plan-view-toggle" role="group" aria-label="Plan view">
+      <button type="button" className={planView === "list" ? "active" : ""} onClick={() => setPlanView("list")}>List</button>
+      <button type="button" className={planView === "calendar" ? "active" : ""} onClick={() => setPlanView("calendar")}>Calendar</button>
+    </div>
+  );
+
+  const mainContent = active ? (
+    <div className="cb-detail">
+      <div className="cb-detail-nav">
+        <button className="cb-back-btn" type="button" onClick={() => setActiveId(null)}>
+          &larr; All recipes
+        </button>
+        <div className="cb-step-group">
+          <button className="cb-step-btn" type="button" onClick={goPrev} aria-label="Previous recipe">&larr;</button>
+          <span className="cb-step-label">
+            No. {String(activeIndex + 1).padStart(3, "0")} / {String(allRecipes.length).padStart(3, "0")}
+          </span>
+          <button className="cb-step-btn" type="button" onClick={goNext} aria-label="Next recipe">&rarr;</button>
+        </div>
+      </div>
+      <active.Component />
+    </div>
+  ) : activeTab === "plan" ? (
+    planView === "calendar" ? (
+      <PlanCalendar
+        weekDays={weekDays}
+        todayISO={todayISO}
+        menu={menu}
+        onOpenRecipe={setActiveId}
+        onRequestDelete={requestDeleteFromMenu}
+      />
+    ) : (
+      <PlanView
+        weekDays={weekDays}
+        selectedDay={selectedDay}
+        todayISO={todayISO}
+        menu={menu}
+        recipes={allRecipes}
+        onOpenRecipe={setActiveId}
+        onAddToMenu={openAddToMenuModal}
+        onQuickAddToday={quickAddToday}
+        onClearDay={requestClearDay}
+        onRequestDelete={requestDeleteFromMenu}
+        onCalculateMacros={calculateExternalMacros}
+        externalMacroStatus={externalMacroStatus}
+        onAddToCookbook={openAddToCookbook}
+      />
+    )
+  ) : activeTab === "log" ? (
+    <LogView
+      logDay={logDay}
+      todayISO={todayISO}
+      menu={menu}
+      recipes={allRecipes}
+      logs={logs}
+      goals={DEFAULT_GOALS}
+      onLogPlanned={logPlannedMeal}
+      onServings={changeLogServings}
+      onRemove={removeLog}
+      onOpenPicker={(iso, meal) => setLogPicker({ iso, meal })}
+    />
+  ) : (
+    <>
+      <div className="cb-toolbar">
+        <div className="cb-search-row">
+          <input
+            className="cb-search"
+            type="text"
+            placeholder="Search recipes…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search recipes"
+          />
+          <select className="cb-filter" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter by protein or diet">
+            <option value="all">All</option>
+            {proteinOptions.map((p) => (
+              <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+            ))}
+            <option value="vegetarian">Vegetarian</option>
+            <option value="vegan">Vegan</option>
+          </select>
+        </div>
+        <div className="cb-list-header-row">
+          <span className="cb-list-count">{listHeader}</span>
+          <span className="cb-list-date">Last added {lastAddedLabel}</span>
+        </div>
+      </div>
+      <div className="cb-grid">
+        {filtered.length ? (
+          filtered.map((r, i) => (
+            <RecipeCard
+              key={r.id}
+              recipe={r}
+              index={i}
+              onOpen={setActiveId}
+              onAddToMenu={openAddToMenuModal}
+              onQuickAddToday={quickAddToday}
+            />
+          ))
+        ) : (
+          <div className="cb-empty">No recipes match that search and filter.</div>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div className="cookbook-root">
       <style>{`
@@ -2475,6 +2639,41 @@ export default function Cookbook() {
         .pc-card-rm { position: absolute; top: 2px; right: 2px; border: none; background: none; color: #7D7A6D; font-size: 13px; line-height: 1; cursor: pointer; opacity: 0.55; }
         .pc-card-rm:hover { color: #D9736A; opacity: 1; }
         .pc-slot-empty { font-family: 'Work Sans', sans-serif; font-size: 10px; color: #5E5B52; text-align: center; line-height: 1.25; }
+        /* Plan-view row: List/Calendar toggle on the left, expand-to-full-screen on the right. */
+        .plan-view-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .fc-expand { flex: 0 0 auto; width: 34px; height: 34px; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 8px; color: #A9A48F; font-size: 16px; cursor: pointer; }
+        .fc-expand:hover { color: #F4EFE4; border-color: #C99A3E; }
+
+        /* Full-screen immersive mode: a fixed overlay with a kept top bar, a narrow tab
+           rail, the active tab's content full-width, and the prompt overlaid at the bottom.
+           z-index 90 sits below the modals (100) and undo toast (110) so both still work. */
+        .fc-overlay { position: fixed; inset: 0; z-index: 90; background: #20242B; display: flex; flex-direction: column; }
+        .fc-topbar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #333A45; }
+        .fc-brand { font-family: 'Libre Caslon Display', serif; font-size: 18px; color: #F4EFE4; white-space: nowrap; }
+        .fc-topbar-center { flex: 1; min-width: 0; display: flex; justify-content: center; }
+        .fc-topbar > .plan-view-toggle { flex: 0 0 auto; margin-bottom: 0; }
+        .fc-topbar-tab { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A48F; }
+        .fc-collapse { flex: 0 0 auto; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 8px; color: #A9A48F; font-size: 16px; cursor: pointer; }
+        .fc-collapse:hover { color: #F4EFE4; border-color: #C99A3E; }
+        .fc-body { flex: 1; min-height: 0; display: flex; }
+        .fc-rail { flex: 0 0 64px; display: flex; flex-direction: column; gap: 10px; padding: 14px 10px; border-right: 1px solid #333A45; }
+        .fc-tab { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 10px; color: #A9A48F; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
+        .fc-tab:hover { color: #F4EFE4; }
+        .fc-tab.active { background: #C99A3E; border-color: #C99A3E; color: #20242B; }
+        .fc-main { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .fc-content { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 20px 104px; display: flex; flex-direction: column; }
+        /* In full screen the calendar stretches to fill the available height. */
+        .fc-content > .pc { flex: 1; display: flex; flex-direction: column; }
+        .fc-content > .pc .pc-grid { flex: 1; grid-auto-rows: 1fr; }
+        .fc-content > .pc .pc-cell { justify-content: flex-start; }
+        .fc-prompt { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(720px, calc(100% - 40px)); z-index: 5; }
+        .fc-prompt .cb-prompt-box { box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
+        @media (max-width: 600px) {
+          .fc-rail { flex-basis: 52px; padding: 12px 6px; }
+          .fc-tab { width: 40px; height: 40px; }
+          .fc-brand { font-size: 16px; }
+          .fc-content { padding: 14px 12px 96px; }
+        }
         .cb-plan-empty { padding: 12px 2px 28px; max-width: 480px; }
         .cb-plan-empty-title { font-family: 'Libre Caslon Display', serif; font-size: 17px; color: #F4EFE4; margin-bottom: 8px; }
         .cb-plan-empty-sub { font-family: 'Work Sans', sans-serif; font-size: 13px; color: #A9A48F; line-height: 1.55; }
@@ -2884,6 +3083,51 @@ export default function Cookbook() {
         button:focus-visible { outline: 2px solid var(--accent, #C99A3E); outline-offset: 2px; }
       `}</style>
 
+      {immersive ? (
+        <div className="fc-overlay">
+          <div className="fc-topbar">
+            <span className="fc-brand">Zara's Plate</span>
+            <div className="fc-topbar-center">
+              <span className="fc-topbar-tab">{activeTabConfig.label}</span>
+            </div>
+            {!active && activeTab === "plan" ? planViewToggle : null}
+            <button
+              type="button"
+              className="fc-collapse"
+              aria-label="Exit full screen"
+              title="Exit full screen"
+              onClick={() => setImmersive(false)}
+            >
+              ⤡
+            </button>
+          </div>
+          <div className="fc-body">
+            <div className="fc-rail" role="tablist" aria-label="Sections">
+              {COMPOSER_TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === t.key}
+                  className={`fc-tab ${activeTab === t.key ? "active" : ""}`}
+                  onClick={() => { setActiveTab(t.key); setActiveId(null); }}
+                  title={t.label}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="fc-main">
+              <div className="fc-content">
+                {mainContent}
+              </div>
+              <div className="fc-prompt">
+                {promptBox}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
       <div className="cb-shell">
         <div className="cb-wrap">
           <div className="cb-layout">
@@ -2969,170 +3213,31 @@ export default function Cookbook() {
                 </>
               )}
               <div className="cb-prompt-block">
-                <div className="cb-prompt-box">
-                  <textarea
-                    key={activeTab}
-                    className="cb-prompt-input"
-                    placeholder={activeTabConfig.placeholder}
-                    value={prompts[activeTab]}
-                    onChange={(e) => { setPrompts((p) => ({ ...p, [activeTab]: e.target.value })); autoGrow(e); }}
-                    onKeyDown={handlePromptKeyDown}
-                    rows={3}
-                  />
-                  <div className="cb-prompt-bottom-row">
-                    {activeTab === "eat" && (
-                      <div className="cb-prompt-starters">
-                        {PROMPT_STARTERS.map((s) => (
-                          <button
-                            key={s}
-                            type="button"
-                            className="cb-prompt-starter"
-                            disabled={!showPromptStarters}
-                            onClick={() => insertPromptStarter(s)}
-                          >
-                            {s}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {activeTab === "plan" && (
-                      <div className="cb-prompt-starters">
-                        {PLAN_PROMPT_STARTERS.map((s) => (
-                          <button
-                            key={s}
-                            type="button"
-                            className="cb-prompt-starter"
-                            onClick={() => insertPromptStarter(s)}
-                          >
-                            {s}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    <button
-                      className="cb-prompt-send"
-                      type="button"
-                      aria-label="Submit prompt"
-                      disabled={!prompts[activeTab].trim()}
-                      onClick={() => submitPrompt(activeTab)}
-                    >
-                      ↑
-                    </button>
-                  </div>
-                </div>
+                {promptBox}
               </div>
             </div>
 
             <div className="cb-right">
-              {active ? (
-                <div className="cb-detail">
-                  <div className="cb-detail-nav">
-                    <button className="cb-back-btn" type="button" onClick={() => setActiveId(null)}>
-                      &larr; All recipes
-                    </button>
-                    <div className="cb-step-group">
-                      <button className="cb-step-btn" type="button" onClick={goPrev} aria-label="Previous recipe">&larr;</button>
-                      <span className="cb-step-label">
-                        No. {String(activeIndex + 1).padStart(3, "0")} / {String(allRecipes.length).padStart(3, "0")}
-                      </span>
-                      <button className="cb-step-btn" type="button" onClick={goNext} aria-label="Next recipe">&rarr;</button>
-                    </div>
-                  </div>
-                  <active.Component />
+              {!active && activeTab === "plan" ? (
+                <div className="plan-view-row">
+                  {planViewToggle}
+                  <button
+                    type="button"
+                    className="fc-expand"
+                    aria-label="Expand to full screen"
+                    title="Full screen"
+                    onClick={() => setImmersive(true)}
+                  >
+                    ⤢
+                  </button>
                 </div>
-              ) : activeTab === "plan" ? (
-                <>
-                  <div className="plan-view-toggle" role="group" aria-label="Plan view">
-                    <button type="button" className={planView === "list" ? "active" : ""} onClick={() => setPlanView("list")}>List</button>
-                    <button type="button" className={planView === "calendar" ? "active" : ""} onClick={() => setPlanView("calendar")}>Calendar</button>
-                  </div>
-                  {planView === "calendar" ? (
-                    <PlanCalendar
-                      weekDays={weekDays}
-                      todayISO={todayISO}
-                      menu={menu}
-                      onOpenRecipe={setActiveId}
-                      onRequestDelete={requestDeleteFromMenu}
-                    />
-                  ) : (
-                    <PlanView
-                      weekDays={weekDays}
-                      selectedDay={selectedDay}
-                      todayISO={todayISO}
-                      menu={menu}
-                      recipes={allRecipes}
-                      onOpenRecipe={setActiveId}
-                      onAddToMenu={openAddToMenuModal}
-                      onQuickAddToday={quickAddToday}
-                      onClearDay={requestClearDay}
-                      onRequestDelete={requestDeleteFromMenu}
-                      onCalculateMacros={calculateExternalMacros}
-                      externalMacroStatus={externalMacroStatus}
-                      onAddToCookbook={openAddToCookbook}
-                    />
-                  )}
-                </>
-              ) : activeTab === "log" ? (
-                <LogView
-                  logDay={logDay}
-                  todayISO={todayISO}
-                  menu={menu}
-                  recipes={allRecipes}
-                  logs={logs}
-                  goals={DEFAULT_GOALS}
-                  onLogPlanned={logPlannedMeal}
-                  onServings={changeLogServings}
-                  onRemove={removeLog}
-                  onOpenPicker={(iso, meal) => setLogPicker({ iso, meal })}
-                />
-              ) : (
-                <>
-                  <div className="cb-toolbar">
-                    <div className="cb-search-row">
-                      <input
-                        className="cb-search"
-                        type="text"
-                        placeholder="Search recipes…"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        aria-label="Search recipes"
-                      />
-                      <select className="cb-filter" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter by protein or diet">
-                        <option value="all">All</option>
-                        {proteinOptions.map((p) => (
-                          <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
-                        ))}
-                        <option value="vegetarian">Vegetarian</option>
-                        <option value="vegan">Vegan</option>
-                      </select>
-                    </div>
-                    <div className="cb-list-header-row">
-                      <span className="cb-list-count">{listHeader}</span>
-                      <span className="cb-list-date">Last added {lastAddedLabel}</span>
-                    </div>
-                  </div>
-                  <div className="cb-grid">
-                    {filtered.length ? (
-                      filtered.map((r, i) => (
-                        <RecipeCard
-                          key={r.id}
-                          recipe={r}
-                          index={i}
-                          onOpen={setActiveId}
-                          onAddToMenu={openAddToMenuModal}
-                          onQuickAddToday={quickAddToday}
-                        />
-                      ))
-                    ) : (
-                      <div className="cb-empty">No recipes match that search and filter.</div>
-                    )}
-                  </div>
-                </>
-              )}
+              ) : null}
+              {mainContent}
             </div>
           </div>
         </div>
       </div>
+      )}
       {pendingMenuItem ? (
         <AddToMenuModal
           item={pendingMenuItem}
