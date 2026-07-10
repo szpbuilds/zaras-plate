@@ -159,6 +159,8 @@ No interim static preview — the shared URL waits for the backend-backed build 
 
 ## Backlog / other enhancements
 
+- **Calendar view for the Plan tab** — a month/week calendar layout for the weekly plan, as an
+  alternative to the current day-list, so meals can be seen and arranged across a broader time span.
 - **Drag & drop in the Plan tab** — reorder recipes between meal slots and across days by dragging,
   instead of the current remove-and-re-add. Plan-tab UX; independent of logging.
 - **Filter Today's Picks by cooking method** (Eat tab) — let the user narrow the daily picks to a
