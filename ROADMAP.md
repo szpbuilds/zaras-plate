@@ -93,7 +93,7 @@ can be reused.
   estimate; HRT context → measure-and-tune, no validated trans-specific equation.)
 - **Reuse over duplication**: one meal card + one "Log it" action shared with the Plan tab; the
   blank-slot placeholder reused from the Plan day-slots.
-- Scope: strictly food logging — no weight/measurement tracking yet.
+- Scope: strictly food logging.
 
 **Tasks (in order — logging first, goals setup right after):**
 - [ ] `logs` table (meal slot, `logged_at`, source, macros, servings, notes), per-user + RLS
@@ -105,8 +105,6 @@ can be reused.
 **Enhancements (later):**
 - **Freeform AI logging** — type what you ate ("2 eggs, toast, black coffee") and reuse the Claude
   proxy to estimate macros. Deferred from the first logging pass.
-- **Weight / measurement tracking** — to auto-tune the goal target over time (deferred; strictly
-  food logging for now).
 
 **Dependencies:** Works standalone on `localStorage`; **best after track 1** for durable history.
 
@@ -174,5 +172,4 @@ No interim static preview — the shared URL waits for the backend-backed build 
   recipe-search prompt (`SEARCH_PROMPT` / `MEMORY_PROMPT`) to tag each pick with a `method`, plus a
   filter control (chips or a select) in the Today's Picks section — and the picks refresh/narrow to
   the chosen method.
-- **Freeform AI logging** and **weight / measurement tracking** — deferred from the logging pass
-  (see track 2 → Enhancements).
+- **Freeform AI logging** — deferred from the logging pass (see track 2 → Enhancements).
