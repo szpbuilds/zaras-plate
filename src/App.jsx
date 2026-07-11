@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import {
+  DndContext, DragOverlay, PointerSensor, KeyboardSensor,
+  useSensor, useSensors, useDraggable, useDroppable, pointerWithin,
+} from "@dnd-kit/core";
 import { supabase } from "./lib/supabase";
 import { useAuth } from "./lib/auth";
 import {
   fetchRecipes, insertRecipe, fetchMenu, insertMenuEntries, deleteMenuEntries,
-  setEntriesMacros, convertEntriesToLibrary, menuRowToItem,
+  updateMenuEntry, setEntriesMacros, convertEntriesToLibrary, menuRowToItem,
   fetchLogs, insertLog, updateLogServings, deleteLog,
 } from "./lib/db";
 
@@ -886,14 +890,17 @@ function RecipeCard({ recipe, index, onOpen, onAddToMenu, onQuickAddToday, inPla
       setTimeout(() => setJustAdded(false), 1400);
     }
   );
+  // In the Plan tab the whole card is a drag handle, so tapping the card must NOT
+  // open the recipe — only the explicit "Open recipe" button does. In the Eat grid
+  // the card stays fully tap-to-open for quick browsing.
   return (
     <div
       className="cb-card"
       style={{ "--card-accent": recipe.theme.accent, "--accent": recipe.theme.accent }}
-      role="button"
-      tabIndex={0}
-      onClick={() => onOpen(recipe.id)}
-      onKeyDown={handleKeyDown}
+      role={inPlan ? undefined : "button"}
+      tabIndex={inPlan ? undefined : 0}
+      onClick={inPlan ? undefined : () => onOpen(recipe.id)}
+      onKeyDown={inPlan ? undefined : handleKeyDown}
     >
       <div className="cb-card-num">No. {String(index + 1).padStart(3, "0")}</div>
       <div className="cb-card-title">{recipe.title}</div>
@@ -916,7 +923,18 @@ function RecipeCard({ recipe, index, onOpen, onAddToMenu, onQuickAddToday, inPla
         >
           {justAdded ? "✓ Added to today" : inPlan ? "Log this meal" : "+ Add to today"}
         </button>
-        <span className="cb-card-cta">Open recipe →</span>
+        {inPlan ? (
+          <button
+            type="button"
+            className="cb-card-cta cb-card-cta-btn"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onOpen(recipe.id); }}
+          >
+            Open recipe →
+          </button>
+        ) : (
+          <span className="cb-card-cta">Open recipe →</span>
+        )}
       </div>
     </div>
   );
@@ -1039,7 +1057,7 @@ function ExternalMenuCard({ entry, onCalculateMacros, calcStatus, onAddToCookboo
 }
 
 // Swipe left to reveal a Delete button; tapping it removes the item (the tap is the confirmation).
-function SwipeableMenuCard({ children, onRequestDelete }) {
+function SwipeableMenuCard({ children, onRequestDelete, dndActive }) {
   const REVEAL_WIDTH = 84;
   const [translateX, setTranslateX] = useState(0);
   const [revealed, setRevealed] = useState(false);
@@ -1055,7 +1073,9 @@ function SwipeableMenuCard({ children, onRequestDelete }) {
     baseXRef.current = revealed ? -REVEAL_WIDTH : 0;
   };
   const onPointerMove = (e) => {
-    if (!draggingRef.current) return;
+    // Once a drag-to-move takes over, stop tracking the swipe so the card doesn't
+    // also translate under the drag overlay.
+    if (!draggingRef.current || dndActive) return;
     const delta = e.clientX - startXRef.current;
     if (Math.abs(delta) > 4) movedRef.current = true;
     setTranslateX(Math.max(-REVEAL_WIDTH, Math.min(0, baseXRef.current + delta)));
@@ -1098,7 +1118,26 @@ function SwipeableMenuCard({ children, onRequestDelete }) {
   );
 }
 
-function renderMenuItem(item, iso, handlers) {
+// Draggable shell for a Plan-tab card: the whole card is the drag handle, activated
+// by a press-and-hold (see the sensors) so swipe/scroll/tap still work. Registers
+// with dnd-kit by entryId; `data` tells onDragEnd what/where it came from. Passes
+// isDragging down so the swipe layer freezes while a move is in progress.
+function DraggableMenuCard({ entryId, item, iso, mealKey, onRequestDelete, children }) {
+  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
+    id: entryId || `noid-${iso}-${mealKey}-${item.label}`,
+    data: { item, fromISO: iso, fromMeal: mealKey },
+    disabled: !entryId,
+  });
+  return (
+    <div ref={setNodeRef} className={`dnd-card ${isDragging ? "dnd-dragging" : ""}`} {...listeners} {...attributes}>
+      <SwipeableMenuCard onRequestDelete={onRequestDelete} dndActive={isDragging}>
+        {children}
+      </SwipeableMenuCard>
+    </div>
+  );
+}
+
+function renderMenuItem(item, iso, handlers, mealKey) {
   let card;
   let key;
   if (item.kind === "library") {
@@ -1130,32 +1169,46 @@ function renderMenuItem(item, iso, handlers) {
     return null;
   }
   return (
-    <SwipeableMenuCard key={key} onRequestDelete={() => handlers.onRequestDelete(iso, item)}>
+    <DraggableMenuCard
+      key={key}
+      entryId={item.entryId}
+      item={item}
+      iso={iso}
+      mealKey={mealKey}
+      onRequestDelete={() => handlers.onRequestDelete(iso, item)}
+    >
       {card}
-    </SwipeableMenuCard>
+    </DraggableMenuCard>
   );
 }
 
 // Renders one day as its three meal slots. Each slot shows either its planned card(s) or,
 // when empty, a placeholder skeleton so every meal-time is always visible.
+// One meal slot in the day list — a drop target (keyed `iso__meal`) so a dragged
+// card can land here whether the slot has cards or is an empty placeholder.
+function MealSlot({ iso, meal, slotItems, handlers }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `${iso}__${meal.key}`, data: { iso, meal: meal.key } });
+  return (
+    <div ref={setNodeRef} className={`cb-slot ${isOver ? "dnd-over" : ""}`}>
+      <span className={`cb-slot-label cb-slot-${meal.key}`}>{meal.label}</span>
+      {slotItems.length ? (
+        <div className="cb-grid">{slotItems.map((item) => renderMenuItem(item, iso, handlers, meal.key))}</div>
+      ) : (
+        <div className="cb-slot-empty" aria-label={`No ${meal.label.toLowerCase()} planned`}>
+          <span className="cb-slot-empty-mark" aria-hidden="true" />
+          <span className="cb-slot-empty-text">No {meal.label.toLowerCase()} planned yet</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DaySlots({ iso, items, handlers }) {
   return (
     <div className="cb-slots">
       {MEALS.map((meal) => {
         const slotItems = items.filter((it) => (it.meal || DEFAULT_MEAL) === meal.key);
-        return (
-          <div key={meal.key} className="cb-slot">
-            <span className={`cb-slot-label cb-slot-${meal.key}`}>{meal.label}</span>
-            {slotItems.length ? (
-              <div className="cb-grid">{slotItems.map((item) => renderMenuItem(item, iso, handlers))}</div>
-            ) : (
-              <div className="cb-slot-empty" aria-label={`No ${meal.label.toLowerCase()} planned`}>
-                <span className="cb-slot-empty-mark" aria-hidden="true" />
-                <span className="cb-slot-empty-text">No {meal.label.toLowerCase()} planned yet</span>
-              </div>
-            )}
-          </div>
-        );
+        return <MealSlot key={meal.key} iso={iso} meal={meal} slotItems={slotItems} handlers={handlers} />;
       })}
     </div>
   );
@@ -1698,23 +1751,43 @@ function LogPickerModal({ recipes, meal, onPick, onClose }) {
 /* =========================================================================
    PLAN — calendar view (week grid: days across, meal slots down)
    ========================================================================= */
-function PlanCalCard({ item, mealKey, onOpen, onRemove }) {
+function PlanCalCard({ item, iso, mealKey, onOpen, onRemove }) {
   const title = item.label || (item.data && item.data.title) || "Meal";
   const openable = item.kind === "library";
+  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
+    id: item.entryId || `noid-${iso}-${mealKey}-${title}`,
+    data: { item, fromISO: iso, fromMeal: mealKey },
+    disabled: !item.entryId,
+  });
   return (
     <div
-      className={`pc-card pc-${mealKey}`}
+      ref={setNodeRef}
+      className={`pc-card pc-${mealKey} ${isDragging ? "dnd-dragging" : ""}`}
       role={openable ? "button" : undefined}
       tabIndex={openable ? 0 : undefined}
       onClick={openable ? () => onOpen(item.id) : undefined}
       onKeyDown={openable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(item.id); } } : undefined}
+      {...listeners}
+      {...attributes}
     >
       <span className="pc-card-title">{title}</span>
       <button className="pc-card-rm" type="button" aria-label="Remove from plan"
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => { e.stopPropagation(); onRemove(); }}>×</button>
     </div>
   );
 }
+
+// A calendar cell (one day × one meal) as a drop target, keyed `iso__meal`.
+function PlanCalCell({ iso, mealKey, isToday, children }) {
+  const { setNodeRef, isOver } = useDroppable({ id: `${iso}__${mealKey}`, data: { iso, meal: mealKey } });
+  return (
+    <div ref={setNodeRef} className={`pc-cell ${isToday ? "today" : ""} ${isOver ? "dnd-over" : ""}`}>
+      {children}
+    </div>
+  );
+}
+
 function PlanCalendar({ weekDays, todayISO, menu, onOpenRecipe, onRequestDelete }) {
   return (
     <div className="pc">
@@ -1735,16 +1808,16 @@ function PlanCalendar({ weekDays, todayISO, menu, onOpenRecipe, onRequestDelete 
             const iso = dateToISO(d);
             const items = (menu[iso] || []).filter((i) => (i.meal || DEFAULT_MEAL) === meal.key);
             return (
-              <div key={`${meal.key}-${iso}`} className={`pc-cell ${iso === todayISO ? "today" : ""}`}>
+              <PlanCalCell key={`${meal.key}-${iso}`} iso={iso} mealKey={meal.key} isToday={iso === todayISO}>
                 {items.length ? (
                   items.map((item, i) => (
-                    <PlanCalCard key={i} item={item} mealKey={meal.key}
+                    <PlanCalCard key={item.entryId || i} item={item} iso={iso} mealKey={meal.key}
                       onOpen={onOpenRecipe} onRemove={() => onRequestDelete(iso, item)} />
                   ))
                 ) : (
                   <span className="pc-slot-empty">No {meal.label.toLowerCase()} planned</span>
                 )}
-              </div>
+              </PlanCalCell>
             );
           })
         )}
@@ -1764,6 +1837,7 @@ export default function Cookbook() {
   const [selectedDay, setSelectedDay] = useState(null);
   const [planView, setPlanView] = useState("list"); // "list" | "calendar"
   const [immersive, setImmersive] = useState(false); // full-screen mode across all tabs
+  const [activeDrag, setActiveDrag] = useState(null); // the menu item currently being dragged
   const [menu, setMenu] = useState({}); // { "YYYY-MM-DD": [{ kind: "library", id } | { kind: "external", data }] }
   const [pendingMenuItem, setPendingMenuItem] = useState(null); // item awaiting a day pick in the modal
   const [confirmAction, setConfirmAction] = useState(null); // { type: "clear-day" | "clear-week", iso?, label }
@@ -1947,6 +2021,55 @@ export default function Cookbook() {
     });
     if (ids.length) deleteMenuEntries(ids).catch((e) => console.error("Failed to clear entries:", e));
     setConfirmAction(null);
+  };
+
+  /* --------------------------- drag & drop (Plan) -------------------------- */
+  // The whole card is the drag handle, activated by a short press-and-hold. A quick
+  // move (before the delay, past the tolerance) aborts activation — so a horizontal
+  // swipe-to-delete and vertical scroll still work untouched, and a tap is free.
+  // One PointerSensor (not Mouse/Touch) so the cards' existing onPointerDown
+  // stopPropagation guards — e.g. the add button's own long-press — keep a press on
+  // those controls from starting a drag.
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+    useSensor(KeyboardSensor)
+  );
+
+  // Moves a planned entry to a new day/meal: optimistic state swap + a persisted
+  // day/meal update, reverting the local state if the write fails. No-ops when the
+  // slot is unchanged or the target already holds the same recipe.
+  const moveMenuEntry = (item, fromISO, toISO, toMeal) => {
+    if (!item.entryId) return;
+    const fromMeal = item.meal || DEFAULT_MEAL;
+    if (fromISO === toISO && fromMeal === toMeal) return;
+    const dup = (menu[toISO] || []).some((e) => e.entryId !== item.entryId && itemsMatch(e, { ...item, meal: toMeal }));
+    if (dup) return;
+    dismissUndo();
+    setMenu((prev) => {
+      const next = { ...prev };
+      next[fromISO] = (next[fromISO] || []).filter((e) => e.entryId !== item.entryId);
+      next[toISO] = [...(next[toISO] || []), { ...item, meal: toMeal }];
+      return next;
+    });
+    updateMenuEntry(item.entryId, { day: toISO, meal: toMeal }).catch((e) => {
+      console.error("Failed to move entry:", e);
+      setMenu((prev) => {
+        const next = { ...prev };
+        next[toISO] = (next[toISO] || []).filter((x) => x.entryId !== item.entryId);
+        next[fromISO] = [...(next[fromISO] || []), item];
+        return next;
+      });
+    });
+  };
+
+  const handleDragStart = (event) => setActiveDrag(event.active?.data?.current?.item || null);
+  const handleDragCancel = () => setActiveDrag(null);
+  const handleDragEnd = (event) => {
+    setActiveDrag(null);
+    const a = event.active?.data?.current;
+    const o = event.over?.data?.current;
+    if (!a || !o) return;
+    moveMenuEntry(a.item, a.fromISO, o.iso, o.meal);
   };
 
   const proteinOptions = useMemo(() => {
@@ -2332,31 +2455,48 @@ export default function Cookbook() {
       <active.Component />
     </div>
   ) : activeTab === "plan" ? (
-    planView === "calendar" ? (
-      <PlanCalendar
-        weekDays={weekDays}
-        todayISO={todayISO}
-        menu={menu}
-        onOpenRecipe={setActiveId}
-        onRequestDelete={requestDeleteFromMenu}
-      />
-    ) : (
-      <PlanView
-        weekDays={weekDays}
-        selectedDay={selectedDay}
-        todayISO={todayISO}
-        menu={menu}
-        recipes={allRecipes}
-        onOpenRecipe={setActiveId}
-        onAddToMenu={openAddToMenuModal}
-        onQuickAddToday={quickAddToday}
-        onClearDay={requestClearDay}
-        onRequestDelete={requestDeleteFromMenu}
-        onCalculateMacros={calculateExternalMacros}
-        externalMacroStatus={externalMacroStatus}
-        onAddToCookbook={openAddToCookbook}
-      />
-    )
+    <DndContext
+      sensors={dndSensors}
+      collisionDetection={pointerWithin}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
+      {planView === "calendar" ? (
+        <PlanCalendar
+          weekDays={weekDays}
+          todayISO={todayISO}
+          menu={menu}
+          onOpenRecipe={setActiveId}
+          onRequestDelete={requestDeleteFromMenu}
+        />
+      ) : (
+        <PlanView
+          weekDays={weekDays}
+          selectedDay={selectedDay}
+          todayISO={todayISO}
+          menu={menu}
+          recipes={allRecipes}
+          onOpenRecipe={setActiveId}
+          onAddToMenu={openAddToMenuModal}
+          onQuickAddToday={quickAddToday}
+          onClearDay={requestClearDay}
+          onRequestDelete={requestDeleteFromMenu}
+          onCalculateMacros={calculateExternalMacros}
+          externalMacroStatus={externalMacroStatus}
+          onAddToCookbook={openAddToCookbook}
+        />
+      )}
+      <DragOverlay dropAnimation={null}>
+        {activeDrag ? (
+          <div className={`pc-card pc-${activeDrag.meal || DEFAULT_MEAL} dnd-overlay-card`}>
+            <span className="pc-card-title">
+              {activeDrag.label || (activeDrag.data && activeDrag.data.title) || "Meal"}
+            </span>
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   ) : activeTab === "log" ? (
     <LogView
       logDay={logDay}
@@ -2639,6 +2779,16 @@ export default function Cookbook() {
         .pc-card-rm { position: absolute; top: 2px; right: 2px; border: none; background: none; color: #7D7A6D; font-size: 13px; line-height: 1; cursor: pointer; opacity: 0.55; }
         .pc-card-rm:hover { color: #D9736A; opacity: 1; }
         .pc-slot-empty { font-family: 'Work Sans', sans-serif; font-size: 10px; color: #5E5B52; text-align: center; line-height: 1.25; }
+
+        /* Drag & drop (Plan tab). The whole card is the drag handle (press-and-hold);
+           the sensors' activation delay keeps swipe, scroll, and tap working. */
+        .dnd-card { min-width: 0; }
+        .dnd-dragging { opacity: 0.4; }
+        /* Slot / cell highlight while a card hovers over a valid drop target. */
+        .cb-slot.dnd-over { outline: 2px dashed #C99A3E; outline-offset: 3px; border-radius: 8px; }
+        .pc-cell.dnd-over { box-shadow: inset 0 0 0 2px #C99A3E; }
+        /* The floating card that follows the cursor/finger during a drag. */
+        .dnd-overlay-card { cursor: grabbing; box-shadow: 0 10px 24px rgba(0,0,0,0.45); max-width: 220px; }
         /* Plan-view row: List/Calendar toggle on the left, expand-to-full-screen on the right. */
         .plan-view-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
         .fc-expand { flex: 0 0 auto; width: 34px; height: 34px; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 8px; color: #A9A48F; font-size: 16px; cursor: pointer; }
@@ -2920,6 +3070,8 @@ export default function Cookbook() {
         }
         .cb-card-addmenu:hover { background: rgba(0,0,0,0.05); }
         .cb-card-cta { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; color: var(--card-accent); flex: 0 0 auto; white-space: nowrap; }
+        .cb-card-cta-btn { border: none; background: none; padding: 4px 2px; cursor: pointer; }
+        .cb-card-cta-btn:hover { text-decoration: underline; }
         .cb-card-cookbook-cta {
           background: none; border: none; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
           color: var(--card-accent); cursor: pointer; flex: 0 0 auto; white-space: nowrap; padding: 0;

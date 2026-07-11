@@ -111,6 +111,16 @@ export async function deleteMenuEntries(entryIds) {
   if (error) throw error;
 }
 
+// Moves an entry to a different day and/or meal slot (drag & drop in the Plan tab).
+export async function updateMenuEntry(entryId, { day, meal }) {
+  const patch = {};
+  if (day !== undefined) patch.day = day;
+  if (meal !== undefined) patch.meal = meal;
+  if (!Object.keys(patch).length) return;
+  const { error } = await supabase.from("menu_entries").update(patch).eq("id", entryId);
+  if (error) throw error;
+}
+
 // Sets cached macros on external entries (after "Calculate macros").
 export async function setEntriesMacros(entryIds, macros) {
   if (!entryIds.length) return;
