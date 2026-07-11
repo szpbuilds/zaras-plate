@@ -159,10 +159,16 @@ No interim static preview — the shared URL waits for the backend-backed build 
 
 ## Backlog / other enhancements
 
-- **Calendar view for the Plan tab** — a month/week calendar layout for the weekly plan, as an
-  alternative to the current day-list, so meals can be seen and arranged across a broader time span.
-- **Drag & drop in the Plan tab** — reorder recipes between meal slots and across days by dragging,
-  instead of the current remove-and-re-add. Plan-tab UX; independent of logging.
+### ✅ Shipped
+- **Calendar view for the Plan tab** — done. A single-week grid (7 days × 4 meal slots) toggling
+  with the day-list, plus a full-screen **immersive mode** (expand from the List/Calendar toggle:
+  a narrow tab rail, full-width content, and the prompt overlaid along the bottom).
+- **Drag & drop in the Plan tab** — done. Press-and-hold a planned card and drop it on another
+  day/meal cell (calendar) or slot (list), moving meals between meals and across days; persisted via
+  `updateMenuEntry` (optimistic, reverts on failure). Uses `@dnd-kit/core`. *Possible future polish:
+  touch drag is a touch finnicky (press-hold activation vs. scroll/swipe) — could be tuned.*
+
+### Pending
 - **Filter Today's Picks by cooking method** (Eat tab) — let the user narrow the daily picks to a
   cooking method: air fryer, oven, one-pan/one-pot, stovetop, grill, no-cook, etc. Likely needs the
   recipe-search prompt (`SEARCH_PROMPT` / `MEMORY_PROMPT`) to tag each pick with a `method`, plus a
