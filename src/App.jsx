@@ -872,7 +872,7 @@ const RECIPES = [
 /* =========================================================================
    INDEX / SHELL
    ========================================================================= */
-function RecipeCard({ recipe, index, onOpen, onAddToMenu, onQuickAddToday, inPlan }) {
+function RecipeCard({ recipe, index, onOpen, onAddToMenu, onQuickAddToday, inEat }) {
   const m = recipe.macros;
   const [justAdded, setJustAdded] = useState(false);
   const handleKeyDown = (e) => {
@@ -890,17 +890,17 @@ function RecipeCard({ recipe, index, onOpen, onAddToMenu, onQuickAddToday, inPla
       setTimeout(() => setJustAdded(false), 1400);
     }
   );
-  // In the Plan tab the whole card is a drag handle, so tapping the card must NOT
+  // In the Eat tab the whole card is a drag handle, so tapping the card must NOT
   // open the recipe — only the explicit "Open recipe" button does. In the Eat grid
   // the card stays fully tap-to-open for quick browsing.
   return (
     <div
       className="cb-card"
       style={{ "--card-accent": recipe.theme.accent, "--accent": recipe.theme.accent }}
-      role={inPlan ? undefined : "button"}
-      tabIndex={inPlan ? undefined : 0}
-      onClick={inPlan ? undefined : () => onOpen(recipe.id)}
-      onKeyDown={inPlan ? undefined : handleKeyDown}
+      role={inEat ? undefined : "button"}
+      tabIndex={inEat ? undefined : 0}
+      onClick={inEat ? undefined : () => onOpen(recipe.id)}
+      onKeyDown={inEat ? undefined : handleKeyDown}
     >
       <div className="cb-card-num">No. {String(index + 1).padStart(3, "0")}</div>
       <div className="cb-card-title">{recipe.title}</div>
@@ -921,9 +921,9 @@ function RecipeCard({ recipe, index, onOpen, onAddToMenu, onQuickAddToday, inPla
           onPointerCancel={longPress.onPointerCancel}
           onClick={(e) => { e.stopPropagation(); longPress.onClick(e); }}
         >
-          {justAdded ? "✓ Added to today" : inPlan ? "Log this meal" : "+ Add to today"}
+          {justAdded ? "✓ Added to today" : inEat ? "Log this meal" : "+ Add to today"}
         </button>
-        {inPlan ? (
+        {inEat ? (
           <button
             type="button"
             className="cb-card-cta cb-card-cta-btn"
@@ -1014,11 +1014,11 @@ function WeekStrip({ weekDays, selectedDay, onSelectDay, menu, todayISO, onClear
   );
 }
 
-function PlanEmptyState({ title, sub }) {
+function EatEmptyState({ title, sub }) {
   return (
-    <div className="cb-plan-empty">
-      <div className="cb-plan-empty-title">{title}</div>
-      <div className="cb-plan-empty-sub">{sub}</div>
+    <div className="cb-eat-empty">
+      <div className="cb-eat-empty-title">{title}</div>
+      <div className="cb-eat-empty-sub">{sub}</div>
     </div>
   );
 }
@@ -1118,7 +1118,7 @@ function SwipeableMenuCard({ children, onRequestDelete, dndActive }) {
   );
 }
 
-// Draggable shell for a Plan-tab card: the whole card is the drag handle, activated
+// Draggable shell for an Eat-tab card: the whole card is the drag handle, activated
 // by a press-and-hold (see the sensors) so swipe/scroll/tap still work. Registers
 // with dnd-kit by entryId; `data` tells onDragEnd what/where it came from. Passes
 // isDragging down so the swipe layer freezes while a move is in progress.
@@ -1151,7 +1151,7 @@ function renderMenuItem(item, iso, handlers, mealKey) {
         onOpen={handlers.onOpenRecipe}
         onAddToMenu={handlers.onAddToMenu}
         onQuickAddToday={handlers.onQuickAddToday}
-        inPlan
+        inEat
       />
     );
   } else if (item.kind === "external") {
@@ -1214,7 +1214,7 @@ function DaySlots({ iso, items, handlers }) {
   );
 }
 
-function PlanView({
+function EatView({
   weekDays, selectedDay, todayISO, menu, recipes, onOpenRecipe, onAddToMenu, onQuickAddToday,
   onClearDay, onRequestDelete, onCalculateMacros, externalMacroStatus, onAddToCookbook,
 }) {
@@ -1265,7 +1265,7 @@ function PlanView({
   );
 }
 
-function PlanMacroSummary({ weekDays, selectedDay, menu, recipes }) {
+function EatMacroSummary({ weekDays, selectedDay, menu, recipes }) {
   const scopeItems = selectedDay ? menu[selectedDay] || [] : weekDays.flatMap((d) => menu[dateToISO(d)] || []);
 
   const totals = { kcal: 0, protein: 0, fat: 0, carb: 0 };
@@ -1307,7 +1307,7 @@ function PlanMacroSummary({ weekDays, selectedDay, menu, recipes }) {
     <div className="cb-macro-summary-wrap">
       <div className="cb-macro-summary-head">Macro Summary</div>
       {includedCount === 0 ? (
-        <PlanEmptyState
+        <EatEmptyState
           title="No macro data yet"
           sub={pendingNote || "Plan some meals to see totals here."}
         />
@@ -1468,13 +1468,13 @@ function AddToCookbookModal({ draft, onApprove, onReject, onRetry }) {
    ROOT APP
    ========================================================================= */
 const COMPOSER_TABS = [
-  { key: "eat", label: "Eat", placeholder: "Describe the recipe you want — ingredients you have, a cuisine, a mood…" },
-  { key: "plan", label: "Plan", placeholder: "Tell me what you're planning for the week — meals, servings, dietary needs…" },
+  { key: "plan", label: "Plan", placeholder: "Describe the recipe you want — ingredients you have, a cuisine, a mood…" },
+  { key: "eat", label: "Eat", placeholder: "Tell me what you're planning for the week — meals, servings, dietary needs…" },
   { key: "log", label: "Log", placeholder: "Tell me what you made or ate, and how it went…" },
 ];
 
-const PROMPT_STARTERS = ["What's the macro profile?", "Summarize the dish", "Let's make this"];
-const PLAN_PROMPT_STARTERS = ["Plan this week", "Complete my week"];
+const PLAN_PROMPT_STARTERS = ["What's the macro profile?", "Summarize the dish", "Let's make this"];
+const EAT_PROMPT_STARTERS = ["Plan this week", "Complete my week"];
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -1751,7 +1751,7 @@ function LogPickerModal({ recipes, meal, onPick, onClose }) {
 /* =========================================================================
    PLAN — calendar view (week grid: days across, meal slots down)
    ========================================================================= */
-function PlanCalCard({ item, iso, mealKey, onOpen, onRemove }) {
+function EatCalCard({ item, iso, mealKey, onOpen, onRemove }) {
   const title = item.label || (item.data && item.data.title) || "Meal";
   const openable = item.kind === "library";
   const { setNodeRef, listeners, attributes, isDragging } = useDraggable({
@@ -1779,7 +1779,7 @@ function PlanCalCard({ item, iso, mealKey, onOpen, onRemove }) {
 }
 
 // A calendar cell (one day × one meal) as a drop target, keyed `iso__meal`.
-function PlanCalCell({ iso, mealKey, isToday, children }) {
+function EatCalCell({ iso, mealKey, isToday, children }) {
   const { setNodeRef, isOver } = useDroppable({ id: `${iso}__${mealKey}`, data: { iso, meal: mealKey } });
   return (
     <div ref={setNodeRef} className={`pc-cell ${isToday ? "today" : ""} ${isOver ? "dnd-over" : ""}`}>
@@ -1788,7 +1788,7 @@ function PlanCalCell({ iso, mealKey, isToday, children }) {
   );
 }
 
-function PlanCalendar({ weekDays, todayISO, menu, onOpenRecipe, onRequestDelete }) {
+function EatCalendar({ weekDays, todayISO, menu, onOpenRecipe, onRequestDelete }) {
   return (
     <div className="pc">
       <div className="pc-headrow">
@@ -1808,16 +1808,16 @@ function PlanCalendar({ weekDays, todayISO, menu, onOpenRecipe, onRequestDelete 
             const iso = dateToISO(d);
             const items = (menu[iso] || []).filter((i) => (i.meal || DEFAULT_MEAL) === meal.key);
             return (
-              <PlanCalCell key={`${meal.key}-${iso}`} iso={iso} mealKey={meal.key} isToday={iso === todayISO}>
+              <EatCalCell key={`${meal.key}-${iso}`} iso={iso} mealKey={meal.key} isToday={iso === todayISO}>
                 {items.length ? (
                   items.map((item, i) => (
-                    <PlanCalCard key={item.entryId || i} item={item} iso={iso} mealKey={meal.key}
+                    <EatCalCard key={item.entryId || i} item={item} iso={iso} mealKey={meal.key}
                       onOpen={onOpenRecipe} onRemove={() => onRequestDelete(iso, item)} />
                   ))
                 ) : (
                   <span className="pc-slot-empty">No {meal.label.toLowerCase()} planned</span>
                 )}
-              </PlanCalCell>
+              </EatCalCell>
             );
           })
         )}
@@ -1830,12 +1830,12 @@ export default function Cookbook() {
   const { user, signOut } = useAuth();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
-  const [activeTab, setActiveTab] = useState("eat");
+  const [activeTab, setActiveTab] = useState("plan");
   const [prompts, setPrompts] = useState({ eat: "", plan: "", log: "" });
   const [showPromptStarters, setShowPromptStarters] = useState(false);
   const [activeId, setActiveId] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
-  const [planView, setPlanView] = useState("list"); // "list" | "calendar"
+  const [eatView, setEatView] = useState("list"); // "list" | "calendar"
   const [immersive, setImmersive] = useState(false); // full-screen mode across all tabs
   const [activeDrag, setActiveDrag] = useState(null); // the menu item currently being dragged
   const [menu, setMenu] = useState({}); // { "YYYY-MM-DD": [{ kind: "library", id } | { kind: "external", data }] }
@@ -2023,7 +2023,7 @@ export default function Cookbook() {
     setConfirmAction(null);
   };
 
-  /* --------------------------- drag & drop (Plan) -------------------------- */
+  /* --------------------------- drag & drop (Eat) -------------------------- */
   // The whole card is the drag handle, activated by a short press-and-hold. A quick
   // move (before the delay, past the tolerance) aborts activation — so a horizontal
   // swipe-to-delete and vertical scroll still work untouched, and a tap is free.
@@ -2321,7 +2321,7 @@ export default function Cookbook() {
 
   const loadDailyRecipes = async (force) => {
     if (!force) {
-      const cached = await loadPrefs("cookbook:eat:daily-picks");
+      const cached = await loadPrefs("cookbook:plan:daily-picks");
       if (cached && cached.date === todayStr() && Array.isArray(cached.recipes) && cached.recipes.length) {
         setDailyRecipes(cached.recipes);
         return;
@@ -2332,7 +2332,7 @@ export default function Cookbook() {
     try {
       const recipes = await fetchDailyRecipes();
       setDailyRecipes(recipes);
-      await savePrefs("cookbook:eat:daily-picks", { date: todayStr(), recipes });
+      await savePrefs("cookbook:plan:daily-picks", { date: todayStr(), recipes });
     } catch (e) {
       setRecipesError(`Couldn't load today's picks — ${e && e.message ? e.message : "unknown error"}.`);
     } finally {
@@ -2389,9 +2389,9 @@ export default function Cookbook() {
         rows={3}
       />
       <div className="cb-prompt-bottom-row">
-        {activeTab === "eat" && (
+        {activeTab === "plan" && (
           <div className="cb-prompt-starters">
-            {PROMPT_STARTERS.map((s) => (
+            {PLAN_PROMPT_STARTERS.map((s) => (
               <button
                 key={s}
                 type="button"
@@ -2404,9 +2404,9 @@ export default function Cookbook() {
             ))}
           </div>
         )}
-        {activeTab === "plan" && (
+        {activeTab === "eat" && (
           <div className="cb-prompt-starters">
-            {PLAN_PROMPT_STARTERS.map((s) => (
+            {EAT_PROMPT_STARTERS.map((s) => (
               <button
                 key={s}
                 type="button"
@@ -2431,10 +2431,10 @@ export default function Cookbook() {
     </div>
   );
 
-  const planViewToggle = (
-    <div className="plan-view-toggle" role="group" aria-label="Plan view">
-      <button type="button" className={planView === "list" ? "active" : ""} onClick={() => setPlanView("list")}>List</button>
-      <button type="button" className={planView === "calendar" ? "active" : ""} onClick={() => setPlanView("calendar")}>Calendar</button>
+  const eatViewToggle = (
+    <div className="eat-view-toggle" role="group" aria-label="Eat view">
+      <button type="button" className={eatView === "list" ? "active" : ""} onClick={() => setEatView("list")}>List</button>
+      <button type="button" className={eatView === "calendar" ? "active" : ""} onClick={() => setEatView("calendar")}>Calendar</button>
     </div>
   );
 
@@ -2454,7 +2454,7 @@ export default function Cookbook() {
       </div>
       <active.Component />
     </div>
-  ) : activeTab === "plan" ? (
+  ) : activeTab === "eat" ? (
     <DndContext
       sensors={dndSensors}
       collisionDetection={pointerWithin}
@@ -2462,8 +2462,8 @@ export default function Cookbook() {
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
-      {planView === "calendar" ? (
-        <PlanCalendar
+      {eatView === "calendar" ? (
+        <EatCalendar
           weekDays={weekDays}
           todayISO={todayISO}
           menu={menu}
@@ -2471,7 +2471,7 @@ export default function Cookbook() {
           onRequestDelete={requestDeleteFromMenu}
         />
       ) : (
-        <PlanView
+        <EatView
           weekDays={weekDays}
           selectedDay={selectedDay}
           todayISO={todayISO}
@@ -2754,11 +2754,11 @@ export default function Cookbook() {
         .lg-picker-macros { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A9A48F; flex: 0 0 auto; }
         .lg-picker-empty { font-family: 'Work Sans', sans-serif; font-size: 13px; color: #7D7A6D; padding: 14px 10px; text-align: center; }
 
-        /* ---------- Plan calendar view ---------- */
-        .plan-view-toggle { display: inline-flex; gap: 3px; background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 999px; padding: 3px; margin-bottom: 16px; }
-        .plan-view-toggle button { border: none; background: none; color: #A9A48F; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
-        .plan-view-toggle button.active { background: #C99A3E; color: #20242B; }
-        .plan-view-toggle button:not(.active):hover { color: #F4EFE4; }
+        /* ---------- Eat calendar view ---------- */
+        .eat-view-toggle { display: inline-flex; gap: 3px; background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 999px; padding: 3px; margin-bottom: 16px; }
+        .eat-view-toggle button { border: none; background: none; color: #A9A48F; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
+        .eat-view-toggle button.active { background: #C99A3E; color: #20242B; }
+        .eat-view-toggle button:not(.active):hover { color: #F4EFE4; }
         /* Day/date labels sit ABOVE the grid. The header row mirrors the grid's columns
            (same template + 1px gap, 1px side margin for the grid's border) so each label
            centers over its column. */
@@ -2780,7 +2780,7 @@ export default function Cookbook() {
         .pc-card-rm:hover { color: #D9736A; opacity: 1; }
         .pc-slot-empty { font-family: 'Work Sans', sans-serif; font-size: 10px; color: #5E5B52; text-align: center; line-height: 1.25; }
 
-        /* Drag & drop (Plan tab). The whole card is the drag handle (press-and-hold);
+        /* Drag & drop (Eat tab). The whole card is the drag handle (press-and-hold);
            the sensors' activation delay keeps swipe, scroll, and tap working. */
         .dnd-card { min-width: 0; }
         .dnd-dragging { opacity: 0.4; }
@@ -2789,8 +2789,8 @@ export default function Cookbook() {
         .pc-cell.dnd-over { box-shadow: inset 0 0 0 2px #C99A3E; }
         /* The floating card that follows the cursor/finger during a drag. */
         .dnd-overlay-card { cursor: grabbing; box-shadow: 0 10px 24px rgba(0,0,0,0.45); max-width: 220px; }
-        /* Plan-view row: List/Calendar toggle on the left, expand-to-full-screen on the right. */
-        .plan-view-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        /* Eat-view row: List/Calendar toggle on the left, expand-to-full-screen on the right. */
+        .eat-view-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
         .fc-expand { flex: 0 0 auto; width: 34px; height: 34px; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 8px; color: #A9A48F; font-size: 16px; cursor: pointer; }
         .fc-expand:hover { color: #F4EFE4; border-color: #C99A3E; }
 
@@ -2801,7 +2801,7 @@ export default function Cookbook() {
         .fc-topbar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #333A45; }
         .fc-brand { font-family: 'Libre Caslon Display', serif; font-size: 18px; color: #F4EFE4; white-space: nowrap; }
         .fc-topbar-center { flex: 1; min-width: 0; display: flex; justify-content: center; }
-        .fc-topbar > .plan-view-toggle { flex: 0 0 auto; margin-bottom: 0; }
+        .fc-topbar > .eat-view-toggle { flex: 0 0 auto; margin-bottom: 0; }
         .fc-topbar-tab { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #A9A48F; }
         .fc-collapse { flex: 0 0 auto; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; background: #2A2F38; border: 1px solid #3A3F4A; border-radius: 8px; color: #A9A48F; font-size: 16px; cursor: pointer; }
         .fc-collapse:hover { color: #F4EFE4; border-color: #C99A3E; }
@@ -2824,9 +2824,9 @@ export default function Cookbook() {
           .fc-brand { font-size: 16px; }
           .fc-content { padding: 14px 12px 96px; }
         }
-        .cb-plan-empty { padding: 12px 2px 28px; max-width: 480px; }
-        .cb-plan-empty-title { font-family: 'Libre Caslon Display', serif; font-size: 17px; color: #F4EFE4; margin-bottom: 8px; }
-        .cb-plan-empty-sub { font-family: 'Work Sans', sans-serif; font-size: 13px; color: #A9A48F; line-height: 1.55; }
+        .cb-eat-empty { padding: 12px 2px 28px; max-width: 480px; }
+        .cb-eat-empty-title { font-family: 'Libre Caslon Display', serif; font-size: 17px; color: #F4EFE4; margin-bottom: 8px; }
+        .cb-eat-empty-sub { font-family: 'Work Sans', sans-serif; font-size: 13px; color: #A9A48F; line-height: 1.55; }
         .cb-card-external { cursor: default; }
         .cb-card-external .cb-card-num { color: #8A8267; }
 
@@ -3242,7 +3242,7 @@ export default function Cookbook() {
             <div className="fc-topbar-center">
               <span className="fc-topbar-tab">{activeTabConfig.label}</span>
             </div>
-            {!active && activeTab === "plan" ? planViewToggle : null}
+            {!active && activeTab === "eat" ? eatViewToggle : null}
             <button
               type="button"
               className="fc-collapse"
@@ -3306,7 +3306,7 @@ export default function Cookbook() {
                   </button>
                 ))}
               </div>
-              {activeTab === "eat" && (
+              {activeTab === "plan" && (
                 <div className="cb-carousel-wrap">
                   <div className="cb-carousel-head">
                     <span className="cb-carousel-label">Today's Picks</span>
@@ -3339,7 +3339,7 @@ export default function Cookbook() {
                   )}
                 </div>
               )}
-              {activeTab === "plan" && (
+              {activeTab === "eat" && (
                 <>
                   <WeekStrip
                     weekDays={weekDays}
@@ -3349,7 +3349,7 @@ export default function Cookbook() {
                     todayISO={todayISO}
                     onClearWeek={requestClearWeek}
                   />
-                  <PlanMacroSummary weekDays={weekDays} selectedDay={selectedDay} menu={menu} recipes={allRecipes} />
+                  <EatMacroSummary weekDays={weekDays} selectedDay={selectedDay} menu={menu} recipes={allRecipes} />
                 </>
               )}
               {activeTab === "log" && (
@@ -3370,9 +3370,9 @@ export default function Cookbook() {
             </div>
 
             <div className="cb-right">
-              {!active && activeTab === "plan" ? (
-                <div className="plan-view-row">
-                  {planViewToggle}
+              {!active && activeTab === "eat" ? (
+                <div className="eat-view-row">
+                  {eatViewToggle}
                   <button
                     type="button"
                     className="fc-expand"
